@@ -1,8 +1,10 @@
+import hashlib
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, render_template, request
+from flask import Flask, abort, render_template, request
 
 from possession_model import (
     EXPECTED_REGULAR_SEASON_GAMES,
@@ -266,6 +268,66 @@ def possession_outputs(possession_status, ready):
     return metadata, table, None, []
 
 
+def _finite(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def possession_diagnostics(metadata, possession_status):
+    """Read saved holdout diagnostics for the model being shown.
+
+    Returns (diagnostics, problem). Only called once the season and freshness gates
+    passed and the outputs matched; the file must also match that audit and split.
+    """
+    try:
+        d = read_json("possession_diagnostics.json")
+    except ValueError:
+        return None, "the diagnostics file could not be read"
+    if d is None:
+        return None, "no diagnostics file was saved with these outputs"
+    # Same canonical hash fit_possession_ridge() records for the audit it fitted against.
+    audit_hash = hashlib.sha256(json.dumps(possession_status, sort_keys=True, separators=(",", ":"))
+                                .encode("utf-8")).hexdigest()
+    try:
+        ridge, base = d["metrics"]["ridge"], d["metrics"]["training_mean_baseline"]
+        stability, holdout_ids = d["stability"], d["holdout"]["holdout_game_ids"]
+        correlation = stability["net_effect_correlation"]
+        valid = (
+            d["schema_version"] == 1 and d["season"] == metadata["season"]
+            and d["audit_sha256"] == audit_hash and holdout_ids == metadata["holdout_game_ids"]
+            and all(_finite(m[k]) and m[k] >= 0 for m in (ridge, base) for k in ("mae", "rmse"))
+            and all(type(m[k]) is int and m[k] > 0 for m in (ridge, base)
+                    for k in ("holdout_games", "evaluated_possessions"))
+            and ridge["holdout_games"] == base["holdout_games"] == len(holdout_ids)
+            and ridge["evaluated_possessions"] == base["evaluated_possessions"]
+            and _finite(stability["min_penalty"]) and _finite(stability["max_penalty"])
+            and (correlation is None or (_finite(correlation) and -1 <= correlation <= 1))
+            and d["metrics"]["units"] == "points per possession"
+            and isinstance(d["limitations"], list) and all(isinstance(x, str) for x in d["limitations"])
+        )
+    except (KeyError, TypeError):
+        valid = False
+    if not valid:
+        return None, "the saved diagnostics are malformed or do not match these outputs"
+    lower = [ridge[k] < base[k] for k in ("mae", "rmse")]
+    return {**d, "improves": "yes" if all(lower) else "no" if not any(lower) else "mixed"}, None
+
+
+@app.route("/diagnostics.json")
+def diagnostics_export():
+    """The saved diagnostics file, only when the dashboard would show the diagnostics card."""
+    possession_status = read_json("cache/possessions/status.json")
+    if possession_status is None:
+        abort(404)
+    audit = possession_audit(possession_status if isinstance(possession_status, dict) else {},
+                             read_json("cache/possessions/verification.json"))
+    possession_model, table, _, _ = possession_outputs(possession_status, audit["ready"])
+    diagnostics = possession_diagnostics(possession_model, possession_status)[0] if table is not None else None
+    if diagnostics is None:
+        abort(404)
+    diagnostics.pop("improves")
+    return app.response_class(json.dumps(diagnostics, indent=2) + "\n", mimetype="application/json")
+
+
 @app.route("/")
 def home():
     status = read_json("status.json")
@@ -278,6 +340,7 @@ def home():
         table = pd.read_csv(DATA_DIR / "rapm.csv")
         players = table[table.possessions >= min_poss].to_dict("records")
     possession_model = possession_players = possession_problem = audit = None
+    diagnostics = diagnostics_problem = None
     failed_checks = []
     if possession_status is not None:
         audit = possession_audit(possession_status if isinstance(possession_status, dict) else {}, verification)
@@ -290,6 +353,7 @@ def home():
             names = cached_player_names(table.player_id)
             for player in possession_players:
                 player["name"] = names.get(int(player["player_id"]))
+            diagnostics, diagnostics_problem = possession_diagnostics(possession_model, possession_status)
     return render_template(
         "index.html",
         status=status,
@@ -301,6 +365,8 @@ def home():
         possession_players=possession_players,
         possession_problem=possession_problem,
         failed_checks=failed_checks,
+        diagnostics=diagnostics,
+        diagnostics_problem=diagnostics_problem,
         audit=audit,
         min_poss=min_poss,
     )

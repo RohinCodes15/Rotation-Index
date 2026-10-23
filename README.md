@@ -54,19 +54,75 @@ missing or mismatched outputs are withheld. When neither status exists, it shows
 
 ## Audit the possession cache offline
 
-Use this offline sequence: inspect without writing; dry-run a rebuild only for a game
-whose raw file already exists; explicitly rebuild if needed; then save a new offline
-audit. Fit only when every one of the 1,230 games validates and all inputs are fresh.
+Use this local workflow. All commands below use existing cached data and make no
+network requests. Replace `0022400061` with a game ID from the cached season list.
+
+1. **Inspect without writing.** View the current cache and input-freshness report:
+
+   ```bash
+   .venv/bin/python -B audit_possessions.py
+   .venv/bin/python -B audit_possessions.py --json
+   ```
+
+2. **Dry-run one game or the batch.** Parsing, correction guards, lineup checks, and
+   lineage comparisons run, but no files are written:
+
+   ```bash
+   .venv/bin/python -B possessions_loader.py --rebuild 0022400061 --dry-run
+   .venv/bin/python -B possessions_loader.py --rebuild-all --dry-run
+   ```
+
+3. **Rebuild from locally cached raw files.** Choose one game or the batch:
+
+   ```bash
+   .venv/bin/python -B possessions_loader.py --rebuild 0022400061
+   .venv/bin/python -B possessions_loader.py --rebuild-all
+   ```
+
+   Each game is isolated. A successful game can publish its normalized file; missing
+   raw data stays missing, and a failed game retains its previous normalized bytes.
+   Raw files, the saved audit, and estimate files remain unchanged.
+
+4. **Review missing and failed games.** Batch JSON on stdout contains `dry_run`,
+   `games`, `counts`, and game-ID-ordered `results`. Each result records its status
+   and any failure reason; stderr contains a short summary. Missing raw games receive no
+   output. A failed game does not stop later games. Resolve failures separately, then
+   dry-run and rebuild again; already-current games are reported as `unchanged`.
+   Neither a successful rebuild nor a batch exit code of 0 certifies season readiness.
+
+5. **Explicitly save a new offline audit.** After reviewing rebuild outcomes:
+
+   ```bash
+   .venv/bin/python -B possessions_loader.py --offline
+   .venv/bin/python -B audit_possessions.py --json
+   ```
+
+   The first command updates only `data/cache/possessions/status.json`; the second
+   inspects without writing. Review validation failures and lineage, not just
+   `audit_complete` or `complete`.
+
+6. **Run the model only after all gates pass.** All 1,230 games must validate, with
+   complete, current verified normalized inputs:
+
+   ```bash
+   .venv/bin/python -B -c "from possession_model import fit_possession_ridge; fit_possession_ridge()"
+   ```
+
+   The model checks the saved audit and current inputs itself, and checks them again
+   before publication. An incomplete or stale cache produces no new estimates and
+   leaves previous estimate files untouched; the dashboard withholds uncertified outputs.
+
+Rebuilding and auditing are separate operations because they answer different questions.
+A rebuild repairs one normalized file from its local raw input. The audit scans the
+whole season and attests which raw and normalized files passed validation together.
+Publishing changed normalized bytes leaves the saved audit describing the previous
+inputs, so fitting stays blocked until an explicit audit verifies the new files.
+Conversely, auditing compares normalized files with an in-memory replay; it never repairs
+them. Read-only inspection saves neither normalized files nor audit attestations.
 Missing raw games cannot be repaired by this workflow and must remain waiting.
 
-For a read-only developer check (dependencies already installed):
-
-```bash
-.venv/bin/python -B audit_possessions.py          # concise summary
-.venv/bin/python -B audit_possessions.py --json   # full deterministic JSON report
-```
-
-This entry point reuses the existing offline audit and shared `check_game_inputs()`.
+The read-only `audit_possessions.py` entry point reuses the existing offline audit and
+shared `check_game_inputs()`.
 It scans every expected ID, including missing games, and reports validation errors,
 possession counts, corrections, and per-game freshness. It does not download, repair,
 save an audit report, or create/overwrite estimates. JSON keys and game IDs are sorted;
@@ -141,8 +197,12 @@ python -c "from possession_model import fit_possession_ridge; fit_possession_rid
 
 This local-only command checks the audit before loading inputs or fitting. It selects from
 penalties 1, 10, 100, 1,000, and 10,000 using a deterministic 20% holdout of whole game IDs,
-then refits all eligible possessions. It writes `data/possession_players.csv` and
-`data/possession_model.json`, separate from legacy outputs. A rejected audit leaves existing
+then refits all eligible possessions. It writes `data/possession_players.csv`,
+`data/possession_model.json`, and `data/possession_diagnostics.json`, separate from legacy
+outputs. The versioned diagnostics record the audit fingerprint, holdout split, model
+settings, Ridge and training-mean MAE/RMSE, and net-coefficient stability across penalties.
+Diagnostics and estimates publish together only after fitting and final validation;
+caught publication failures roll back the output set. A rejected audit leaves existing
 outputs untouched and creates no new ones. Running `python possession_model.py` alone does
 not invoke this pipeline.
 
@@ -151,7 +211,9 @@ defense, and net effects in points per 100 possessions. Positive defense means p
 prevented; net = offense + defense. Metadata records the chosen penalty, holdout MSEs in
 squared points per possession, split game IDs, intercept, and conventions. These MSEs tune
 the penalty; they are not independent final evaluation scores. The dashboard can display
-matching saved possession-model outputs after the same audit gate passes.
+matching saved possession-model outputs after the same audit gate passes. Behind that same
+gate, `/diagnostics.json` serves the validated diagnostics file (no player estimates) for
+inspection or download; it returns 404 whenever the diagnostics card is hidden or unavailable.
 
 The offline audit does not regenerate normalized game files. The model requires verified
 lineage for each game, checks current raw and normalized fingerprints against the audit,
@@ -160,19 +222,31 @@ inputs block fitting and output writes. Refresh them separately and rerun the au
 are rechecked before output publication. Single-season estimates remain noisy and subject
 to lineup/role confounding.
 
-To refresh one cached game's normalized file from its existing raw play-by-play:
+Rebuilding never updates the saved audit. Run the separate
+`.venv/bin/python -B possessions_loader.py --offline` command afterward, then inspect
+validation and lineage outcomes before fitting. The offline audit never fits or
+creates estimates; every game's validation and freshness checks must still pass.
 
-```bash
-.venv/bin/python -B possessions_loader.py --rebuild 0022400061 --dry-run   # report only
-.venv/bin/python -B possessions_loader.py --rebuild 0022400061             # rebuild
-.venv/bin/python -B possessions_loader.py --offline                        # re-attest
-```
+Batch JSON contains only `dry_run`, `games`, sorted `counts`, and game-ID-ordered
+`results`; derive missing, failed, and rebuilt game IDs from each result's `status`.
+Failure reasons appear in that result's `error`. Dry-run predictions remain per-game
+statuses such as `would_create` or `would_replace`, not completed rebuilds.
+
+`--rebuild-all [--dry-run]` runs the same single-game rebuild for every listed game in
+game-ID order, reports missing raw files as `missing_raw`, and keeps going past a failed
+game (whose old file is left as it was). It prints a one-line summary to stderr and sorted
+JSON results to stdout and exits 1 if any game failed; missing raw games alone do not
+make the batch fail. Invalid CLI arguments exit 2. It never reruns the audit.
+Reports are deterministic for unchanged
+inputs and cache state; after a successful write, the next rebuild reports `unchanged`.
 
 The rebuild uses the same raw validation, guarded corrections, five-player lineup check,
-and lineage fingerprints as the audit. It writes to a staging file and replaces the old
-normalized file only after the staged copy verifies; on any failure the old file is left
-as it was. It never downloads, edits raw files, `status.json`, or estimate outputs, and a
-game without raw data is reported as `missing_raw` with nothing created. Changed normalized
+and lineage fingerprints as the audit. It writes a staging file beside the target and
+atomically replaces the old normalized file only after the staged copy verifies; on any
+parsing, correction, lineup, staging-write, or verification failure the old file is left
+as it was. Rebuilding never downloads, edits raw files, or produces estimate outputs;
+`status.json` changes only when the separate offline audit runs. A game without raw
+data is reported as `missing_raw` with nothing created. Changed normalized
 bytes cannot pass the saved audit's freshness check until the offline audit is rerun.
 Dry-run executes the same parsing, validation, corrections, and fingerprint comparison,
 but writes nothing: it reports whether a normalized file would be created, replaced,
@@ -254,7 +328,7 @@ preserves all these values (or a permission change without a signature change) c
 the running dashboard showing cached results. Restart the dashboard to discard its
 in-memory caches. Fitting's uncached final recheck does not inherit this limitation.
 There is no filesystem lock: concurrent edits after the final check remain possible, and
-the two output replacements are individually atomic, not a crash-safe pair transaction.
+the output replacements are individually atomic, not a crash-safe transaction across files.
 A process crash or power loss can interrupt publication before rollback. If the filesystem
 also prevents rollback, the error reports the retained staging directory for recovery;
 backups are not deleted in that case. Concurrent writers/readers are not synchronized.

@@ -18,6 +18,62 @@ REAL_RAW = REAL_ROOT / 'pbpstats/pbp' / f'live_{GAME_ID}.json'
 
 
 class OfflineAuditTests(unittest.TestCase):
+    def test_rebuild_cli_keeps_audit_separate(self):
+        self.copy_cache()
+        old = self.copy_normalized()
+        audit_path = self.root / 'status.json'
+        audit_path.write_bytes(b'previous audit')
+        for args in (['--rebuild', GAME_ID], ['--rebuild-all']):
+            for dry_run in (True, False):
+                with self.subTest(args=args, dry_run=dry_run):
+                    old.write_bytes(b'{"old": true}')
+                    before = self.whole_tree()
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    with patch.object(pl, 'audit_cached_season') as audit, \
+                            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                        with self.assertRaises(SystemExit) as stop:
+                            pl.cli(args + (['--dry-run'] if dry_run else []))
+                        audit.assert_not_called()
+                    self.assertEqual(stop.exception.code, 0)
+                    report = json.loads(stdout.getvalue())
+                    if '--rebuild-all' in args:
+                        self.assertEqual(set(report), {'dry_run', 'games', 'counts', 'results'})
+                        self.assertEqual(report['counts'],
+                                         {'missing_raw': 1229, 'would_replace' if dry_run else 'rebuilt': 1})
+                        self.assertIn('rerun --offline', stderr.getvalue())
+                    else:
+                        self.assertEqual(report['status'], 'would_replace' if dry_run else 'rebuilt')
+                        self.assertNotIn('audit', report)
+                    self.assertEqual(audit_path.read_bytes(), b'previous audit')
+                    after = self.whole_tree()
+                    changed = {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
+                    self.assertEqual(changed, set() if dry_run else {old.relative_to(Path(self.temp.name))})
+        self.run_cli()  # Only the separate offline command refreshes the saved audit.
+        status = json.loads(audit_path.read_text())
+        self.assertEqual(status['games_missing'], 1229)
+        self.assertEqual(status['lineage_counts']['verified'], 1)
+
+    def test_rebuild_cli_rejects_removed_flag_and_invalid_combinations(self):
+        for args in (['--re-audit'], ['--rebuild', GAME_ID, '--re-audit'],
+                     ['--rebuild-all', '--re-audit'], ['--dry-run'],
+                     ['--rebuild', GAME_ID, '--rebuild-all']):
+            with self.subTest(args=args):
+                stderr = io.StringIO()
+                before = self.whole_tree()
+                with patch.object(pl, 'rebuild_cached_game') as single, \
+                        patch.object(pl, 'rebuild_cached_season') as batch, \
+                        patch.object(pl, 'audit_cached_season') as audit, \
+                        contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as stop:
+                        pl.cli(args)
+                    single.assert_not_called()
+                    batch.assert_not_called()
+                    audit.assert_not_called()
+                self.assertEqual(stop.exception.code, 2)
+                if '--re-audit' in args:
+                    self.assertIn('unrecognized arguments: --re-audit', stderr.getvalue())
+                self.assertEqual(self.whole_tree(), before)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -498,6 +554,272 @@ class OfflineAuditTests(unittest.TestCase):
                 {'status': 'mismatch'}, {'status': 'mismatch'}]):
             self.assert_rebuild_failed('staged file did not verify')
 
+    def batch_fixture(self):
+        """GAME_ID succeeds; 0022400001 gets GAME_ID's feed so raw validation fails; the rest are missing."""
+        self.copy_cache()
+        bad = self.raw / 'pbp' / 'live_0022400001.json'
+        shutil.copyfile(REAL_RAW, bad)
+        old = self.copy_normalized()
+        old.write_text('{"old": true}')
+        (self.normalized / '0022400001.json').write_text('{"bad old": true}')
+        (self.root / 'status.json').write_text('{"audit": "saved"}')
+        estimate = Path(self.temp.name) / 'estimates/possession_estimates.json'
+        estimate.parent.mkdir()
+        estimate.write_text('{"estimates": []}')
+        return old, bad
+
+    def results_with_status(self, batch, status):
+        return {r['game_id']: r for r in batch['results'] if r['status'] == status}
+
+    def whole_tree(self):
+        base = Path(self.temp.name)
+        return {p.relative_to(base): p.read_bytes() for p in base.rglob('*') if p.is_file()}
+
+    def test_batch_dry_run_orders_games_and_writes_nothing(self):
+        self.batch_fixture()
+        for name in ('possession_players.csv', 'possession_model.json', 'rapm.csv', 'model.json'):
+            (Path(self.temp.name) / name).write_bytes(b'previous estimate\r\n')
+        before = self.whole_tree()
+        batch = pl.rebuild_cached_season(dry_run=True)
+        self.assertEqual(self.whole_tree(), before)
+        ids = [r['game_id'] for r in batch['results']]
+        self.assertEqual((ids, batch['games']), (sorted(ids), 1230))
+        by_id = {r['game_id']: r for r in batch['results']}
+        self.assertEqual(by_id[GAME_ID]['status'], 'would_replace')
+        self.assertEqual(by_id['0022400001']['status'], 'failed')
+        self.assertEqual(by_id['0022400002']['status'], 'missing_raw')
+        self.assertEqual(batch['counts'], {'failed': 1, 'missing_raw': 1228, 'would_replace': 1})
+        self.assertFalse(any(r['written'] for r in batch['results']))
+        self.assertEqual(list(self.results_with_status(batch, 'rebuilt')), [])
+        self.assertEqual(len(list(self.results_with_status(batch, 'missing_raw'))), 1228)
+        self.assertEqual(list(self.results_with_status(batch, 'failed')), ['0022400001'])
+        self.assertIn('wrong game id', self.results_with_status(batch, 'failed')['0022400001']['error'])
+        self.assertEqual(json.dumps(batch, sort_keys=True), json.dumps(pl.rebuild_cached_season(dry_run=True), sort_keys=True))
+        self.assertEqual(self.whole_tree(), before)
+
+    def test_batch_cli_dry_run_json_order_and_bytes_repeat(self):
+        self.batch_fixture()
+        before = self.whole_tree()
+        outputs = []
+        for _ in range(2):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as stop:
+                    pl.cli(['--rebuild-all', '--dry-run'])
+            self.assertEqual(stop.exception.code, 1)  # invalid cached game, not missing raw data
+            report = json.loads(stdout.getvalue())
+            self.assertEqual(stdout.getvalue(), json.dumps(report, indent=2, sort_keys=True) + '\n')
+            ids = [r['game_id'] for r in report['results']]
+            self.assertEqual(ids, sorted(ids))
+            self.assertEqual(set(report), {'dry_run', 'games', 'counts', 'results'})
+            self.assertEqual(report['counts'], {'failed': 1, 'missing_raw': 1228, 'would_replace': 1})
+            outputs.append((stdout.getvalue(), stderr.getvalue()))
+            self.assertEqual(self.whole_tree(), before)
+        self.assertEqual(outputs[0], outputs[1])
+
+    def test_batch_failed_game_recovers_after_raw_fixture_fixed(self):
+        old, _ = self.batch_fixture()
+        raw = self.raw / 'pbp' / REAL_RAW.name
+        original = raw.read_bytes()
+        raw.write_text('{broken fixture')
+        failed = pl.rebuild_cached_season()
+        self.assertIn(GAME_ID, self.results_with_status(failed, 'failed'))
+        self.assertEqual(old.read_text(), '{"old": true}')
+        raw.write_bytes(original)  # repair only this temporary raw fixture
+        recovered = pl.rebuild_cached_season()
+        self.assertEqual(list(self.results_with_status(recovered, 'rebuilt')), [GAME_ID])
+        self.assertNotIn(GAME_ID, self.results_with_status(recovered, 'failed'))
+        self.assertEqual(list(self.results_with_status(recovered, 'missing_raw')), list(self.results_with_status(failed, 'missing_raw')))
+        before = self.whole_tree()
+        signature = old.stat()
+        rerun = pl.rebuild_cached_season()
+        self.assertEqual(self.whole_tree(), before)
+        self.assertEqual((old.stat().st_mtime_ns, old.stat().st_ino), (signature.st_mtime_ns, signature.st_ino))
+        self.assertEqual(next(r['status'] for r in rerun['results'] if r['game_id'] == GAME_ID), 'unchanged')
+
+    def test_batch_isolates_failures_and_repeats_deterministically(self):
+        old, bad = self.batch_fixture()
+        before = self.whole_tree()
+        first = pl.rebuild_cached_season()
+        after = self.whole_tree()
+        changed = {p for p in before if before[p] != after.get(p)} | (after.keys() - before.keys())
+        # Only the good game's normalized file changes: not the bad game's old file, raw, audit or estimates.
+        self.assertEqual(changed, {old.relative_to(Path(self.temp.name))})
+        self.assertEqual(old.read_bytes(), (REAL_ROOT / 'games' / old.name).read_bytes())
+        self.assertIn('wrong game id', next(r for r in first['results'] if r['game_id'] == '0022400001')['error'])
+        self.assertEqual(first['counts'], {'failed': 1, 'missing_raw': 1228, 'rebuilt': 1})
+        self.assertEqual(list(self.results_with_status(first, 'rebuilt')), [GAME_ID])
+        second = pl.rebuild_cached_season()
+        self.assertEqual(self.whole_tree(), after)
+        self.assertEqual(second['counts'], {'failed': 1, 'missing_raw': 1228, 'unchanged': 1})
+        self.assertEqual(json.dumps(pl.rebuild_cached_season(), sort_keys=True), json.dumps(second, sort_keys=True))
+
+    def test_batch_correction_fails_closed_and_unexpected_errors_are_isolated(self):
+        old, _ = self.batch_fixture()
+        before = self.whole_tree()
+        correction = {**pl.VERIFIED_CORRECTIONS[0], 'expected_player1_id': 1628436}
+        with patch.object(pl, 'VERIFIED_CORRECTIONS', (correction,)):
+            batch = pl.rebuild_cached_season()
+        self.assertEqual(batch['counts'], {'failed': 2, 'missing_raw': 1228})
+        self.assertEqual(self.whole_tree(), before)
+        real = pl.rebuild_cached_game
+        with patch.object(pl, 'rebuild_cached_game', side_effect=lambda gid, **kw: (
+                (_ for _ in ()).throw(OSError('boom')) if gid == '0022400001' else real(gid, **kw))):
+            batch = pl.rebuild_cached_season()
+        self.assertEqual(batch['counts'], {'failed': 1, 'missing_raw': 1228, 'rebuilt': 1})
+        self.assertEqual(old.read_bytes(), (REAL_ROOT / 'games' / old.name).read_bytes())
+
+    def test_batch_atomic_write_failure_keeps_old_file(self):
+        old, _ = self.batch_fixture()
+        before = self.whole_tree()
+        with patch.object(Path, 'replace', side_effect=OSError('disk full')):
+            batch = pl.rebuild_cached_season()
+        self.assertIn('disk full', next(r for r in batch['results'] if r['game_id'] == GAME_ID)['error'])
+        self.assertEqual(self.whole_tree(), before)
+        self.assertEqual(old.read_text(), '{"old": true}')
+
+    def test_batch_partial_staging_write_preserves_all_cached_files(self):
+        old, _ = self.batch_fixture()
+        before = self.whole_tree()
+        write_text = Path.write_text
+
+        def interrupted_write(path, data, *args, **kwargs):
+            if path.name == old.name + '.rebuild.tmp':
+                self.assertEqual(old.read_bytes(), before[old.relative_to(Path(self.temp.name))])
+                write_text(path, data[:100], *args, **kwargs)
+                raise OSError('interrupted staging write')
+            return write_text(path, data, *args, **kwargs)
+
+        with patch.object(Path, 'write_text', interrupted_write):
+            batch = pl.rebuild_cached_season()
+        self.assertIn('interrupted staging write', self.results_with_status(batch, 'failed')[GAME_ID]['error'])
+        self.assertEqual(self.whole_tree(), before)
+
+    def test_batch_validation_failures_publish_nothing(self):
+        self.batch_fixture()
+        raw = self.raw / 'pbp' / REAL_RAW.name
+        original = raw.read_bytes()
+        for label, content, corrections, error in (
+                ('malformed JSON', b'{broken', pl.VERIFIED_CORRECTIONS, 'JSONDecodeError'),
+                ('malformed structure', b'{"game": {}}', pl.VERIFIED_CORRECTIONS, 'KeyError'),
+                ('correction', original,
+                 ({**pl.VERIFIED_CORRECTIONS[0], 'expected_player1_id': 1628436},),
+                 'correction guard failed'),
+                ('lineup', original, (), 'invalid five-player lineup')):
+            with self.subTest(label):
+                raw.write_bytes(content)
+                before = self.whole_tree()
+                with patch.object(pl, 'VERIFIED_CORRECTIONS', corrections):
+                    batch = pl.rebuild_cached_season()
+                self.assertIn(error, self.results_with_status(batch, 'failed')[GAME_ID]['error'])
+                self.assertEqual(list(self.results_with_status(batch, 'rebuilt')), [])
+                self.assertEqual(self.whole_tree(), before)
+
+    def test_mixed_batch_publication_repair_and_explicit_reaudit(self):
+        import app as dashboard
+        import possession_model
+
+        self.copy_cache()
+        games_path = self.root / 'games.json'
+        games = json.loads(games_path.read_text())
+        opener = next(g for g in games['results'] if g['GameId'] == GAME_ID)
+        missing, malformed, correction, lineup = sorted(
+            g['GameId'] for g in games['results'] if g['GameId'] != GAME_ID)[:4]
+        clones = {malformed, correction, lineup}
+        games['results'] = [{**opener, 'GameId': g['GameId']} if g['GameId'] in clones else g
+                            for g in games['results']]
+        games_path.write_text(json.dumps(games))
+        feed = json.loads(REAL_RAW.read_text())
+        repaired_raw = None
+        for gid in sorted(clones):
+            cloned = json.loads(json.dumps(feed))
+            cloned['game']['gameId'] = gid
+            content = json.dumps(cloned)
+            if gid == malformed:
+                repaired_raw = content
+                content = '{malformed raw'
+            elif gid == correction:
+                next(e for e in cloned['game']['actions'] if e['actionNumber'] == 509)['personId'] = 1628436
+                content = json.dumps(cloned)
+            (self.raw / 'pbp' / f'live_{gid}.json').write_text(content)
+        # Clone the real guarded correction for the synthetic games that need it;
+        # leaving the lineup game's feed uncorrected exercises the real lineup validator.
+        corrections = pl.VERIFIED_CORRECTIONS + tuple(
+            {**pl.VERIFIED_CORRECTIONS[0], 'game_id': gid} for gid in (malformed, correction))
+        old = self.copy_normalized()
+        old.write_text('{"old": "successful game"}')
+        for gid in clones:
+            (self.normalized / f'{gid}.json').write_bytes(b'{"old": "failed game"}\r\n')
+        estimate_paths = [Path(self.temp.name) / name for name in
+                          ('possession_players.csv', 'possession_model.json', 'rapm.csv', 'model.json')]
+        for path in estimate_paths:
+            path.write_bytes(b'previous estimate\r\n')
+        status_path = self.root / 'status.json'
+        selected = [GAME_ID, missing, malformed, correction, lineup]
+
+        def matching_states(expected):
+            status = json.loads(status_path.read_text())
+            dashboard._file_cache.clear()
+            dashboard._gate_cache.clear()
+            with patch.object(dashboard, 'DATA_DIR', Path(self.temp.name)):
+                self.assertFalse(dashboard.possession_audit(status, None)['ready'])
+                for gid in selected:
+                    scoped = {**status, 'expected_game_ids': [gid]}
+                    view = dashboard.input_freshness(scoped, lambda game_id, fields: fields)
+                    category = next(k for k, n in view['counts'].items() if n)
+                    self.assertEqual(category, expected[gid], gid)
+                    if category == 'fresh':
+                        possession_model._require_current_lineage(scoped, status_path)
+                    else:
+                        with self.assertRaisesRegex(possession_model.IncompleteSeasonError,
+                                                    rf'\({category}:'):
+                            possession_model._require_current_lineage(scoped, status_path)
+            with self.assertRaises(possession_model.IncompleteSeasonError):
+                possession_model.require_complete_season(status_path)
+
+        def changed(before, after):
+            return {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
+
+        with patch.object(pl, 'VERIFIED_CORRECTIONS', corrections):
+            pl.audit_cached_season()  # Explicit initial audit, before the rebuild.
+            states = {GAME_ID: 'stale', missing: 'missing_raw',
+                      malformed: 'unverifiable', correction: 'unverifiable', lineup: 'unverifiable'}
+            matching_states(states)
+            before = self.whole_tree()
+            batch = pl.rebuild_cached_season()
+            after = self.whole_tree()
+            self.assertEqual(list(self.results_with_status(batch, 'rebuilt')), [GAME_ID])
+            self.assertIn(missing, list(self.results_with_status(batch, 'missing_raw')))
+            self.assertEqual(set(self.results_with_status(batch, 'failed')), clones)
+            for gid, error in ((malformed, 'JSONDecodeError'), (correction, 'correction guard failed'),
+                               (lineup, 'invalid five-player lineup')):
+                self.assertIn(error, self.results_with_status(batch, 'failed')[gid]['error'])
+            self.assertEqual(changed(before, after), {old.relative_to(Path(self.temp.name))})
+            self.assertEqual(old.read_bytes(), (REAL_ROOT / 'games' / old.name).read_bytes())
+            self.assertFalse((self.normalized / f'{missing}.json').exists())
+            matching_states(states)  # Publishing alone cannot refresh the saved audit.
+
+            raw = self.raw / 'pbp' / f'live_{malformed}.json'
+            raw.write_text(repaired_raw)  # Repair only this temporary raw fixture.
+            expected = pl.normalize({**opener, 'GameId': malformed})
+            before_repair = self.whole_tree()
+            rerun = pl.rebuild_cached_season()
+            repaired = self.normalized / f'{malformed}.json'
+            self.assertEqual(list(self.results_with_status(rerun, 'rebuilt')), [malformed])
+            self.assertEqual(set(self.results_with_status(rerun, 'failed')), {correction, lineup})
+            self.assertEqual(json.loads(repaired.read_text()), expected)
+            self.assertEqual(changed(before_repair, self.whole_tree()),
+                             {repaired.relative_to(Path(self.temp.name))})
+            matching_states(states)
+
+            before_audit = self.whole_tree()
+            pl.audit_cached_season()  # Only this explicit action updates the audit.
+            self.assertEqual(changed(before_audit, self.whole_tree()),
+                             {status_path.relative_to(Path(self.temp.name))})
+            matching_states({**states, GAME_ID: 'fresh', malformed: 'fresh'})
+            for path in estimate_paths:
+                self.assertEqual(path.read_bytes(), b'previous estimate\r\n')
+
     def test_rebuilt_inputs_pass_dashboard_and_gate_only_after_reaudit(self):
         import app as dashboard
         import possession_model
@@ -509,6 +831,16 @@ class OfflineAuditTests(unittest.TestCase):
 
         def both_views():
             status = json.loads(status_path.read_text())
+            with patch.object(dashboard, 'DATA_DIR', Path(self.temp.name)):
+                full = dashboard.possession_audit(status, None)
+                html = dashboard.app.test_client().get('/').get_data(as_text=True)
+            self.assertNotIn('Possession-level player estimates', html)
+            with self.assertRaises(possession_model.IncompleteSeasonError):
+                possession_model.require_complete_season(status_path)
+            self.assertFalse(full['ready'])  # the other 1,229 games still block season readiness
+            self.assertEqual(status['games_missing'], 1229)
+            self.assertEqual(sum(r['lineage']['status'] == 'missing_raw'
+                                 for r in status['game_results'].values()), 1229)
             status['expected_game_ids'] = [GAME_ID]  # judge the cached game only
             dashboard._file_cache.clear()
             with patch.object(dashboard, 'DATA_DIR', Path(self.temp.name)):
@@ -530,11 +862,39 @@ class OfflineAuditTests(unittest.TestCase):
         view, gate = both_views()
         self.assertEqual(view['problems'][0]['category'], 'stale')
         self.assertIn('(stale: ', str(gate))
-        self.run_cli()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as stop:
+                pl.cli(['--offline'])
+        self.assertEqual(stop.exception.code, 1)  # audit completed, season incomplete
         view, gate = both_views()
         self.assertTrue(view['fresh'])
         self.assertEqual((view['counts']['fresh'], view['problems']), (1, []))
         self.assertEqual(gate, 'fresh')
+        self.assertFalse(any(p.name in ('possession_players.csv', 'possession_model.json', 'rapm.csv', 'model.json')
+                             for p in Path(self.temp.name).rglob('*')))
+
+    def test_failed_or_missing_single_rebuild_preserves_audit(self):
+        raw = self.copy_cache()
+        self.copy_normalized()
+        self.run_cli()
+        audit_path = self.root / 'status.json'
+        previous = audit_path.read_bytes()
+        raw.write_text('{invalid raw json')
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    raw.unlink()
+                output = io.StringIO()
+                with patch.object(pl, 'audit_cached_season') as audit, contextlib.redirect_stdout(output):
+                    with self.assertRaises(SystemExit) as stop:
+                        pl.cli(['--rebuild', GAME_ID])
+                    audit.assert_not_called()
+                self.assertEqual(stop.exception.code, 1)
+                report = json.loads(output.getvalue())
+                self.assertEqual(report['status'], 'missing_raw' if missing else 'failed')
+                self.assertEqual(audit_path.read_bytes(), previous)
+        self.assertFalse(any(p.name in ('possession_players.csv', 'possession_model.json', 'rapm.csv', 'model.json')
+                             for p in Path(self.temp.name).rglob('*')))
 
 
 if __name__ == '__main__':

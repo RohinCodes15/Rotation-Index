@@ -166,6 +166,73 @@ class DashboardDisplayTests(unittest.TestCase):
     def assert_possession_hidden(self, html):
         self.assertNotIn("Possession-level player estimates", html)
         self.assertNotIn("Possession model details", html)
+        self.assertNotIn("Model diagnostics", html)
+        self.assertEqual(self.client.get("/diagnostics.json").status_code, 404)
+
+    def test_complete_cache_shows_model_diagnostics(self):
+        self.complete_possession_outputs()
+        d = json.loads((self.data / "possession_diagnostics.json").read_text())
+        ridge, base = d["metrics"]["ridge"], d["metrics"]["training_mean_baseline"]
+        html = self.page()
+        self.assertIn("Model diagnostics", html)
+        for value in (ridge["mae"], ridge["rmse"], base["mae"], base["rmse"]):
+            self.assertIn("%.4f" % value, html)
+        self.assertIn(f"{ridge['holdout_games']:,} games, {ridge['evaluated_possessions']:,} possessions", html)
+        self.assertEqual(ridge["holdout_games"], 246)
+        lower = (ridge["mae"] < base["mae"], ridge["rmse"] < base["rmse"])
+        verdict = {(True, True): "Yes:", (False, False): "No:"}.get(lower, "Mixed:")
+        self.assertIn(verdict, html)
+        for explanation in ("The typical miss", "big misses count extra",
+                            "ignores who is on the court", "Stability (penalty sensitivity)",
+                            "penalty sensitivity, not statistical uncertainty",
+                            "not proof of causation"):
+            self.assertIn(explanation, html)
+        self.assertNotIn("Model diagnostics are unavailable", html)
+        self.assertIn("Possession-level player estimates", html)
+        self.assertIn('href="/diagnostics.json" download="possession_diagnostics.json"', html)
+        self.assertIn("schema version 1", html)
+        export = self.client.get("/diagnostics.json")
+        self.assertEqual(export.status_code, 200)
+        self.assertEqual(export.mimetype, "application/json")
+        self.assertEqual(export.get_json(), d)
+        self.assertLessEqual(set(d), {"schema_version", "season", "audit_sha256", "holdout",
+                                      "model_settings", "metrics", "stability", "limitations"})
+        self.assertNotIn("player_id", export.get_data(as_text=True))
+
+    def test_malformed_diagnostics_show_unavailable_but_keep_estimates(self):
+        self.complete_possession_outputs()
+        path = self.data / "possession_diagnostics.json"
+        good = json.loads(path.read_text())
+
+        def edited(change):
+            d = json.loads(json.dumps(good))
+            change(d)
+            return json.dumps(d)
+
+        cases = {
+            "unreadable": "{bad json",
+            "not an object": "[]",
+            "NaN error": edited(lambda d: d["metrics"]["ridge"].update(mae=float("nan"))),
+            "negative error": edited(lambda d: d["metrics"]["training_mean_baseline"].update(rmse=-1)),
+            "boolean count": edited(lambda d: d["metrics"]["ridge"].update(holdout_games=True)),
+            "count mismatch": edited(lambda d: d["metrics"]["ridge"].update(evaluated_possessions=1)),
+            "missing stability": edited(lambda d: d.pop("stability")),
+            "bad correlation": edited(lambda d: d["stability"].update(net_effect_correlation=2)),
+            "other audit": edited(lambda d: d.update(audit_sha256="0" * 64)),
+            "other split": edited(lambda d: d["holdout"]["holdout_game_ids"].reverse()),
+            "wrong schema": edited(lambda d: d.update(schema_version=2)),
+            "bad limitations": edited(lambda d: d.update(limitations=5)),
+        }
+        for label, text in cases.items():
+            with self.subTest(label):
+                path.write_text(text)
+                html = self.page()
+                self.assertIn("Model diagnostics are unavailable", html)
+                self.assertNotIn("Root mean squared error", html)
+                self.assertIn("Possession-level player estimates", html)
+                self.assertEqual(self.client.get("/diagnostics.json").status_code, 404)
+        path.unlink()
+        self.assertIn("no diagnostics file was saved", self.page())
 
     def test_complete_cache_shows_possession_outputs_and_hides_legacy(self):
         self.legacy_files()

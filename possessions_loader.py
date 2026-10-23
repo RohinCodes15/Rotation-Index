@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import sys
 import time
 from collections import Counter
 from importlib.metadata import version
@@ -511,6 +512,25 @@ def rebuild_cached_game(game_id, *, dry_run=False):
             "previous_lineage_status": current["status"], "lineage": lineage}
 
 
+def rebuild_cached_season(*, dry_run=False):
+    """Run rebuild_cached_game() for every listed game in game-ID order; local files only.
+
+    Each game stages and replaces its own file, so one failure cannot touch another
+    game's output. status.json and estimate outputs are never written; rerun --offline.
+    """
+    games = json.loads((ROOT / "games.json").read_text())["results"]
+    results = []
+    for game_id in sorted({g["GameId"] for g in games}):
+        try:
+            results.append(rebuild_cached_game(game_id, dry_run=dry_run))
+        except Exception as error:  # isolate: record and continue with the next game
+            results.append({"game_id": game_id, "dry_run": dry_run, "written": False,
+                            "status": "failed", "error": f"{type(error).__name__}: {error}"})
+    counts = Counter(r["status"] for r in results)
+    return {"dry_run": dry_run, "games": len(results), "counts": dict(sorted(counts.items())),
+            "results": results}
+
+
 def main(offline=False):
     """Offline audits all existing caches; online loading remains fail-fast."""
     if offline:
@@ -579,18 +599,33 @@ def main(offline=False):
         raise SystemExit(1)
 
 
-if __name__ == "__main__":
+def cli(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--offline", action="store_true", help="audit every listed game using cached files only; never download")
     parser.add_argument("--rebuild", metavar="GAME_ID", help="rebuild one normalized game from its cached raw file; never download")
-    parser.add_argument("--dry-run", action="store_true", help="with --rebuild: report what would change and write nothing")
-    args = parser.parse_args()
-    if args.dry_run and not args.rebuild:
-        parser.error("--dry-run requires --rebuild GAME_ID")
+    parser.add_argument("--rebuild-all", action="store_true", help="rebuild every listed game whose raw file is cached; never download")
+    parser.add_argument("--dry-run", action="store_true", help="with --rebuild/--rebuild-all: report what would change and write nothing")
+    args = parser.parse_args(argv)
+    if args.dry_run and not (args.rebuild or args.rebuild_all):
+        parser.error("--dry-run requires --rebuild GAME_ID or --rebuild-all")
+    if args.rebuild and args.rebuild_all:
+        parser.error("use --rebuild or --rebuild-all, not both")
+    if args.rebuild_all:
+        batch = rebuild_cached_season(dry_run=args.dry_run)
+        # Human summary on stderr keeps stdout pure JSON for machines.
+        print(("DRY RUN: " if args.dry_run else "") + ", ".join(f"{k}={v}" for k, v in batch["counts"].items())
+              + f" of {batch['games']} listed games; rerun --offline to re-audit", file=sys.stderr, flush=True)
+        print(json.dumps(batch, indent=2, sort_keys=True), flush=True)
+        raise SystemExit(1 if batch["counts"].get("failed") else 0)
     if args.rebuild:
         report = rebuild_cached_game(args.rebuild, dry_run=args.dry_run)
         print(json.dumps(report, indent=2), flush=True)
-        raise SystemExit(0 if report["status"] in ("unchanged", "rebuilt", "would_create", "would_replace") else 1)
+        success = report["status"] in ("unchanged", "rebuilt", "would_create", "would_replace")
+        raise SystemExit(0 if success else 1)
     main(offline=args.offline)
+
+
+if __name__ == "__main__":
+    cli()

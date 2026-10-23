@@ -567,8 +567,9 @@ def fit_possession_ridge(design=None, penalties=RIDGE_PENALTY_GRID, *,
     cover 1,230 games. No output directories/files are touched until validation,
     selection, full-data fitting, and serialization have all succeeded.
 
-    Outputs are possession_players.csv and possession_model.json, separate from
-    legacy model files. Return the full-data PossessionRidgeFit. No downloads.
+    Outputs are possession_players.csv, possession_model.json, and
+    possession_diagnostics.json, separate from legacy model files.
+    Return the full-data PossessionRidgeFit. No downloads.
     """
     status = require_complete_season(status_path, game_cache=game_cache)
     if design is None:
@@ -620,8 +621,28 @@ def fit_possession_ridge(design=None, penalties=RIDGE_PENALTY_GRID, *,
                         "Only model-eligible possessions included; exclusions can select the sample.",
                         "Holdout errors tune the penalty and are not an independent final evaluation."],
     }
+    diagnostics = {
+        "schema_version": 1,
+        "season": status.get("season"),
+        "audit_sha256": hashlib.sha256(json.dumps(
+            status, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest(),
+        "holdout": {"split": metadata["holdout_split"],
+                    "training_game_ids": metadata["training_game_ids"],
+                    "holdout_game_ids": metadata["holdout_game_ids"]},
+        "model_settings": {**{key: metadata[key] for key in
+                              ("selected_penalty", "candidate_penalties", "objective", "final_fit")},
+                           "solver_tolerance": tolerance, "solver_max_iterations": max_iterations},
+        "metrics": {"units": "points per possession",
+                    "ridge": selection.holdout_diagnostics,
+                    "training_mean_baseline": selection.baseline_diagnostics},
+        "stability": selection.penalty_stability,
+        "limitations": ["Holdout metrics tune the penalty; not an independent final evaluation.",
+                        "Coefficient correlation measures penalty sensitivity, not sampling uncertainty."],
+    }
     payloads = {"possession_players.csv": table.getvalue(),
-                "possession_model.json": json.dumps(metadata, indent=2, allow_nan=False) + "\n"}
+                "possession_model.json": json.dumps(metadata, indent=2, allow_nan=False) + "\n",
+                "possession_diagnostics.json": json.dumps(diagnostics, indent=2, allow_nan=False) + "\n"}
     # Recheck immediately before publishing so changes during fitting cannot
     # silently overwrite valid outputs using an earlier audit snapshot.
     if require_complete_season(status_path, game_cache=game_cache) != status:
@@ -649,8 +670,9 @@ def _publish_estimate_outputs(payloads, output_dir):
                 shutil.copy2(destination, staging / (name + '.previous'))
         try:
             for name in payloads:
-                os.replace(staging / name, output_dir / name)
+                # Track before rename so an interruption after it cannot escape rollback.
                 published.append(name)
+                os.replace(staging / name, output_dir / name)
         except BaseException:
             try:
                 for name in reversed(published):
@@ -658,7 +680,7 @@ def _publish_estimate_outputs(payloads, output_dir):
                     if previous.exists():
                         os.replace(previous, output_dir / name)
                     else:
-                        (output_dir / name).unlink()
+                        (output_dir / name).unlink(missing_ok=True)
             except BaseException as error:
                 cleanup = False
                 raise OSError(f"estimate rollback failed; recovery files retained in {staging}") from error
@@ -714,14 +736,74 @@ def summarize_player_impacts(fit, design):
     )
 
 
+def summarize_holdout_predictions(game_ids, observed, predicted):
+    """Summarize tuning predictions; MAE/RMSE are points per possession.
+
+    Pure in-memory diagnostics, equally weighted by evaluated possession.
+    These reuse the tuning holdout, not an independent final evaluation.
+    """
+    games = np.asarray(game_ids)
+    observed, predicted = np.asarray(observed, dtype=float), np.asarray(predicted, dtype=float)
+    if (games.ndim != 1 or not len(games)
+            or any(not isinstance(g, str) or not g for g in games)):
+        raise ValueError("nonempty one-dimensional string game IDs required")
+    if (observed.shape != games.shape or predicted.shape != games.shape
+            or not np.all(np.isfinite(observed)) or not np.all(np.isfinite(predicted))):
+        raise ValueError("finite observed and predicted values must match game IDs")
+    with np.errstate(over='ignore', invalid='ignore'):
+        residuals = observed - predicted
+        mae = float(np.mean(np.abs(residuals)))
+        rmse = float(np.sqrt(np.mean(residuals ** 2)))
+    if not np.isfinite(mae) or not np.isfinite(rmse):
+        raise ValueError("nonfinite holdout diagnostics")
+    return {"holdout_games": len(set(games.tolist())),
+            "evaluated_possessions": len(games), "mae": mae, "rmse": rmse}
+
+
+def net_effect_correlation(first, second):
+    """Pearson correlation of aligned offense + defense effects across settings.
+
+    None means fewer than two players or constant net effects, so correlation
+    is undefined. This measures penalty sensitivity, not sampling uncertainty.
+    """
+    if (first.player_ids.ndim != 1 or not np.array_equal(first.player_ids, second.player_ids)
+            or len(set(first.player_ids.tolist())) != len(first.player_ids)):
+        raise ValueError("fits must have the same unique player IDs in the same order")
+    nets = []
+    for fit in (first, second):
+        if any(effects.shape != first.player_ids.shape or not np.all(np.isfinite(effects))
+               for effects in (fit.offense_effects, fit.defense_effects)):
+            raise ValueError("finite offense and defense effects must match player IDs")
+        with np.errstate(over='ignore', invalid='ignore'):
+            net = fit.offense_effects + fit.defense_effects
+        if not np.all(np.isfinite(net)):
+            raise ValueError("net effects must be finite")
+        nets.append(net)
+    if len(first.player_ids) < 2 or any(np.all(net == net[0]) for net in nets):
+        return None
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        correlation = float(np.corrcoef(nets)[0, 1])
+    if not np.isfinite(correlation):
+        raise ValueError("nonfinite net-effect correlation")
+    return correlation
+
+
 @dataclass(frozen=True)
 class RidgePenaltySelection:
-    """Holdout MSE is in squared points per possession, not per 100 possessions."""
+    """Tuning errors with Ridge and training-mean diagnostics on the same holdout.
+
+    Holdout MSE is squared points per possession; diagnostic MAE/RMSE are points
+    per possession. Diagnostics are saved separately from estimate metadata only
+    after a successful full-data fit and final validation.
+    """
 
     selected_penalty: float
     holdout_errors: dict[float, float]
     training_game_ids: tuple[str, ...]
     holdout_game_ids: tuple[str, ...]
+    holdout_diagnostics: dict[str, int | float]
+    baseline_diagnostics: dict[str, int | float]
+    penalty_stability: dict[str, float | None]
 
 
 def _game_holdout(game_ids):
@@ -762,13 +844,19 @@ def _select_ridge_penalty(design, penalties, *, tolerance, max_iterations):
         points_per_possession=y[~holdout_mask],
         game_ids=design.game_ids[~holdout_mask],
     )
+    baseline = summarize_holdout_predictions(
+        design.game_ids[holdout_mask], y[holdout_mask],
+        np.full(y[holdout_mask].shape, float(training.points_per_possession.mean())),
+    )
     # Retain the full ID vocabulary: players appearing only in held-out games
     # have zero fitted coefficients under ridge, never holdout-derived effects.
-    errors = {}
+    errors, diagnostics = {}, {}
     for penalty in penalties:
         fit = _solve_compact_ridge(
             training, penalty, tolerance=tolerance, max_iterations=max_iterations,
         )
+        if penalty == penalties[0]:
+            first_fit = fit
         predictions = (
             fit.intercept
             + fit.offense_effects[design.offense_indices[holdout_mask]].sum(axis=1)
@@ -778,9 +866,16 @@ def _select_ridge_penalty(design, penalties, *, tolerance, max_iterations):
         if not np.isfinite(error):
             raise RuntimeError("nonfinite ridge holdout error")
         errors[penalty] = error
+        diagnostics[penalty] = summarize_holdout_predictions(
+            design.game_ids[holdout_mask], y[holdout_mask], predictions,
+        )
     # Deterministic tie rule: choose the smaller penalty for exactly equal MSE.
     selected = min(errors, key=lambda p: (errors[p], p))
-    return RidgePenaltySelection(selected, errors, training_ids, holdout_ids)
+    stability = {"min_penalty": penalties[0], "max_penalty": penalties[-1],
+                 "net_effect_correlation": net_effect_correlation(first_fit, fit)
+                 if len(penalties) > 1 else None}
+    return RidgePenaltySelection(selected, errors, training_ids, holdout_ids,
+                                 diagnostics[selected], baseline, stability)
 
 
 def select_ridge_penalty(design, penalties=RIDGE_PENALTY_GRID, *,

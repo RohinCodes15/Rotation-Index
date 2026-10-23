@@ -241,6 +241,42 @@
             <p class="small">These outputs match the current audit: same season, source, {{ "{:,}".format(m.games_used) }} audited game IDs, and {{ "{:,}".format(m.eligible_possessions) }} model-eligible possessions. Possession exclusions are listed in the audit above.</p>
         </section>
 
+        <section>
+            <h2>Model diagnostics</h2>
+            {% if diagnostics %}
+            {% set ridge = diagnostics.metrics.ridge %}
+            {% set base = diagnostics.metrics.training_mean_baseline %}
+            {% set st = diagnostics.stability %}
+            <p>These are validation metrics: how closely the model predicted points per possession in held-out games it was not trained on. Lower is better.</p>
+            <table class="facts">
+                <tr><th></th><th>Ridge</th><th>Baseline (training average)</th></tr>
+                <tr><th>Mean absolute error<br><span class="small">The typical miss: the average distance between predicted and actual points on a possession.</span></th><td>{{ "%.4f"|format(ridge.mae) }}</td><td>{{ "%.4f"|format(base.mae) }}</td></tr>
+                <tr><th>Root mean squared error<br><span class="small">Like MAE, but big misses count extra, so it is always at least as large as MAE.</span></th><td>{{ "%.4f"|format(ridge.rmse) }}</td><td>{{ "%.4f"|format(base.rmse) }}</td></tr>
+            </table>
+            <p class="small">Errors are in {{ diagnostics.metrics.units }}.</p>
+            <table class="facts">
+                <tr><th>Improves on baseline<br><span class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</span></th><td>
+                    {% if diagnostics.improves == "yes" %}Yes: Ridge has lower MAE and RMSE than the baseline.
+                    {% elif diagnostics.improves == "no" %}No: Ridge does not have lower MAE or RMSE than the baseline.
+                    {% else %}Mixed: Ridge is lower on {{ "MAE" if ridge.mae < base.mae else "RMSE" }} only.{% endif %}
+                </td></tr>
+                <tr><th>Holdout</th><td>{{ "{:,}".format(ridge.holdout_games) }} games, {{ "{:,}".format(ridge.evaluated_possessions) }} possessions</td></tr>
+                <tr><th>Stability (penalty sensitivity)<br><span class="small">How similar player net effects stay between the smallest and largest Ridge penalty tried. Near 1 means the ranking barely depends on that tuning choice.</span></th><td>
+                    {% if st.net_effect_correlation is none %}Not defined (too few players or identical net effects).
+                    {% else %}Net effects at penalty {{ st.min_penalty }} and {{ st.max_penalty }} correlate at {{ "%.3f"|format(st.net_effect_correlation) }}.{% endif %}
+                    This is penalty sensitivity, not statistical uncertainty: it is not a confidence interval or margin of error.
+                </td></tr>
+            </table>
+            <p class="small">Why this is not proof of causation: these numbers only show how well lineups predict scoring in games the model did not see. Players do not get random minutes, so who plays with whom, against whom, and when (rest, garbage time, matchups) can drive results that the model credits to a player.</p>
+            <ul class="small">
+                {% for limitation in diagnostics.limitations %}<li>{{ limitation }}</li>{% endfor %}
+            </ul>
+            <p class="small"><a href="{{ url_for('diagnostics_export') }}" download="possession_diagnostics.json">Download the diagnostics JSON</a> (schema version {{ diagnostics.schema_version }}): holdout game IDs, model settings, validation metrics, and stability. It contains no player estimates.</p>
+            {% else %}
+            <p>Model diagnostics are unavailable: {{ diagnostics_problem }}. Refit the model to regenerate them.</p>
+            {% endif %}
+        </section>
+
         <section class="notice">
             <h2>Limitations</h2>
             <ul>

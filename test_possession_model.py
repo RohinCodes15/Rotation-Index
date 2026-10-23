@@ -16,6 +16,8 @@ from test_cache_fixtures import attach_lineage_fixture
 
 from possession_model import (
     IncompleteSeasonError,
+    PossessionDesignData,
+    PossessionRidgeFit,
     build_possession_rows,
     build_design_data,
     load_cached_possession_rows,
@@ -27,6 +29,8 @@ from possession_model import (
     _select_ridge_penalty,
     select_ridge_penalty,
     summarize_player_impacts,
+    summarize_holdout_predictions,
+    net_effect_correlation,
     RIDGE_PENALTY_GRID,
     load_cached_player_names,
 )
@@ -52,14 +56,144 @@ def complete_audit_fixture():
     }
 
 
+class HoldoutDiagnosticsTests(unittest.TestCase):
+    def test_net_effect_correlation_and_undefined_cases(self):
+        fit = PossessionRidgeFit(np.arange(3), 1., np.array([-1., 0., 1.]), np.zeros(3))
+        self.assertAlmostEqual(net_effect_correlation(fit, fit), 1.)
+        self.assertAlmostEqual(net_effect_correlation(
+            fit, replace(fit, offense_effects=np.zeros(3), defense_effects=-2 * fit.offense_effects)), -1.)
+        self.assertAlmostEqual(net_effect_correlation(
+            fit, replace(fit, offense_effects=np.array([1., -2., 1.]))), 0.)
+        self.assertIsNone(net_effect_correlation(fit, replace(fit, offense_effects=np.zeros(3))))
+        single = PossessionRidgeFit(np.array([1]), 1., np.array([0.]), np.array([0.]))
+        self.assertIsNone(net_effect_correlation(single, single))
+        for invalid in (replace(fit, player_ids=fit.player_ids[::-1]),
+                        replace(fit, offense_effects=np.array([1.])),
+                        replace(fit, defense_effects=np.array([0., float('nan'), 0.]))):
+            with self.assertRaises(ValueError):
+                net_effect_correlation(fit, invalid)
+
+    def test_penalty_stability_reuses_existing_fits_deterministically(self):
+        rng = np.random.default_rng(7)
+        lineups = np.array([rng.permutation(10) for _ in range(20)])
+        design = PossessionDesignData(
+            player_ids=np.arange(10), offense_indices=lineups[:, :5],
+            defense_indices=lineups[:, 5:], points_per_possession=rng.integers(0, 4, 20).astype(float),
+            game_ids=np.repeat([f'fixture-{i}' for i in range(10)], 2),
+        )
+        fitted = []
+        def capture(data, penalty, **kwargs):
+            fit = _solve_compact_ridge(data, penalty, **kwargs)
+            fitted.append(fit)
+            return fit
+        with patch('possession_model._solve_compact_ridge', side_effect=capture) as solver:
+            report = _select_ridge_penalty(design, (10, 1), tolerance=1e-10, max_iterations=None)
+        self.assertEqual(solver.call_count, 2)
+        nets = [fit.offense_effects + fit.defense_effects for fit in fitted]
+        self.assertEqual(report.penalty_stability, {
+            'min_penalty': 1., 'max_penalty': 10.,
+            'net_effect_correlation': float(np.corrcoef(nets)[0, 1]),
+        })
+        repeated = _select_ridge_penalty(design, (1, 10, 1), tolerance=1e-10, max_iterations=None)
+        self.assertEqual(report, repeated)
+        single = _select_ridge_penalty(design, (1,), tolerance=1e-10, max_iterations=None)
+        self.assertEqual(single.penalty_stability,
+                         {'min_penalty': 1., 'max_penalty': 1., 'net_effect_correlation': None})
+
+    def test_training_mean_and_ridge_share_holdout_without_leakage(self):
+        games = np.repeat([f'fixture-{i}' for i in range(10)], 2)
+        mask, training, holdout = _game_holdout(games)
+        outcomes = np.tile([0., 2.], 10)
+        outcomes[mask] = np.tile([5., 9.], len(holdout))
+        design = PossessionDesignData(
+            player_ids=np.arange(10),
+            offense_indices=np.tile(np.arange(5), (len(games), 1)),
+            defense_indices=np.tile(np.arange(5, 10), (len(games), 1)),
+            points_per_possession=outcomes, game_ids=games,
+        )
+        with patch('possession_model.summarize_holdout_predictions',
+                   wraps=summarize_holdout_predictions) as summarize:
+            report = _select_ridge_penalty(design, (10, 1), tolerance=1e-10, max_iterations=None)
+        self.assertEqual(summarize.call_count, 3)  # Baseline once, then each Ridge candidate.
+        for call in summarize.call_args_list:
+            np.testing.assert_array_equal(call.args[0], games[mask])
+            np.testing.assert_array_equal(call.args[1], outcomes[mask])
+        # Training outcomes average 1; including the holdout would give 2.2.
+        np.testing.assert_array_equal(summarize.call_args_list[0].args[2], np.ones(mask.sum()))
+        expected = {'holdout_games': 2, 'evaluated_possessions': 4,
+                    'mae': 6., 'rmse': np.sqrt(40.)}
+        self.assertEqual(report.baseline_diagnostics, expected)
+        self.assertEqual(report.holdout_diagnostics, expected)
+        self.assertEqual(report.training_game_ids, training)
+        self.assertEqual(report.holdout_game_ids, holdout)
+        for repeated in (design, replace(design, game_ids=games[::-1],
+                                        points_per_possession=outcomes[::-1],
+                                        offense_indices=design.offense_indices[::-1],
+                                        defense_indices=design.defense_indices[::-1])):
+            again = _select_ridge_penalty(repeated, (1, 10, 1), tolerance=1e-10, max_iterations=None)
+            self.assertEqual(report, again)
+            self.assertEqual(json.dumps(report.baseline_diagnostics, sort_keys=True),
+                             json.dumps(again.baseline_diagnostics, sort_keys=True))
+
+    def test_known_metrics_weight_possessions_and_ignore_row_order(self):
+        games = np.array(['fixture-a', 'fixture-a', 'fixture-b'])
+        observed = np.array([0., 2., 4.])
+        predicted = np.array([1., 2., 1.])
+        expected = {'holdout_games': 2, 'evaluated_possessions': 3,
+                    'mae': 4 / 3, 'rmse': np.sqrt(10 / 3)}
+        self.assertEqual(summarize_holdout_predictions(games, observed, predicted), expected)
+        self.assertEqual(summarize_holdout_predictions(games[::-1], observed[::-1], predicted[::-1]),
+                         expected)
+        self.assertEqual(summarize_holdout_predictions(['fixture-a'], [2], [2]),
+                         {'holdout_games': 1, 'evaluated_possessions': 1, 'mae': 0., 'rmse': 0.})
+
+    def test_invalid_predictions_fail_closed(self):
+        for games, observed, predicted in (
+                ([], [], []), ([['fixture']], [1], [1]), ([''], [1], [1]),
+                ([1], [1], [1]), (['fixture'], [1, 2], [1]),
+                (['fixture'], [1], [[1]]), (['fixture'], [float('nan')], [1]),
+                (['fixture'], [1], [float('inf')]), (['fixture'], [1e308], [-1e308])):
+            with self.subTest(games=games, observed=observed, predicted=predicted):
+                with self.assertRaises(ValueError):
+                    summarize_holdout_predictions(games, observed, predicted)
+
+
 class PossessionModelInputTests(unittest.TestCase):
+    def test_failure_after_rename_restores_complete_output_set(self):
+        from possession_model import _publish_estimate_outputs
+        payloads = {'possession_players.csv': 'new csv\n',
+                    'possession_model.json': '{"new": true}\n',
+                    'possession_diagnostics.json': '{"schema_version": 1}\n'}
+        for previous in ('all', 'none', 'estimates only'):
+            for failed_name in payloads:
+                for failure in (OSError, KeyboardInterrupt):
+                    with self.subTest(previous=previous, failed_name=failed_name, failure=failure), \
+                            tempfile.TemporaryDirectory() as temporary:
+                        root = Path(temporary)
+                        for name in payloads:
+                            if previous == 'all' or (previous == 'estimates only'
+                                                     and name != 'possession_diagnostics.json'):
+                                (root / name).write_bytes(b'old ' + name.encode() + b'\x00\r\n')
+                        before = {p.name: p.read_bytes() for p in root.iterdir()}
+                        replace_file = os.replace
+                        def interrupted_replace(source, destination):
+                            replace_file(source, destination)
+                            if Path(source).name == failed_name:
+                                raise failure('interrupted immediately after rename')
+                        with patch('possession_model.os.replace', interrupted_replace):
+                            with self.assertRaises(failure):
+                                _publish_estimate_outputs(payloads, root)
+                        self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+
     def test_staging_and_publication_failures_preserve_output_set(self):
         from possession_model import _publish_estimate_outputs
-        payloads = {'possession_players.csv': 'new csv\n', 'possession_model.json': '{"new": true}\n'}
+        payloads = {'possession_players.csv': 'new csv\n', 'possession_model.json': '{"new": true}\n',
+                    'possession_diagnostics.json': '{"schema_version": 1}\n'}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for preexisting in (True, False):
-                for failure in ('generation', 'first publish', 'second publish'):
+                for failure in ('generation', 'diagnostics generation', 'first publish',
+                                'second publish', 'third publish'):
                     with self.subTest(preexisting=preexisting, failure=failure):
                         for name in payloads:
                             (root / name).unlink(missing_ok=True)
@@ -71,15 +205,17 @@ class PossessionModelInputTests(unittest.TestCase):
                         def publish(source, destination):
                             nonlocal calls
                             calls += 1
-                            if calls == (1 if failure == 'first publish' else 2):
+                            if calls == {'first publish': 1, 'second publish': 2, 'third publish': 3}.get(failure):
                                 raise OSError('injected publish failure')
                             return replace_file(source, destination)
                         def generate(path, content):
-                            if path.name == 'possession_model.json':
+                            if path.name == ('possession_diagnostics.json' if failure == 'diagnostics generation'
+                                             else 'possession_model.json'):
                                 raise OSError('injected output generation failure')
                             return write_bytes(path, content)
-                        target = 'pathlib.Path.write_bytes' if failure == 'generation' else 'possession_model.os.replace'
-                        with patch(target, generate if failure == 'generation' else publish):
+                        generating = failure in ('generation', 'diagnostics generation')
+                        target = 'pathlib.Path.write_bytes' if generating else 'possession_model.os.replace'
+                        with patch(target, generate if generating else publish):
                             with self.assertRaises(OSError):
                                 _publish_estimate_outputs(payloads, root)
                         self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
@@ -117,7 +253,7 @@ class PossessionModelInputTests(unittest.TestCase):
             originals = {raw: raw.read_bytes(), normalized: normalized.read_bytes()}
             existing = root / "existing"
             existing.mkdir()
-            for name in ("possession_players.csv", "possession_model.json"):
+            for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                 (existing / name).write_text("preserve existing estimate")
             for case in ("missing lineage", "unverifiable lineage", "missing attestation",
                          "stale raw", "stale normalized", "missing normalized", "missing raw",
@@ -175,7 +311,7 @@ class PossessionModelInputTests(unittest.TestCase):
                                 fit_possession_ridge(status_path=status_path, output_dir=output)
                             solver.assert_not_called()
                     self.assertFalse((root / "new").exists())
-                    for name in ("possession_players.csv", "possession_model.json"):
+                    for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                         self.assertEqual((existing / name).read_text(), "preserve existing estimate")
                     for path, content in originals.items():
                         path.write_bytes(content)
@@ -206,7 +342,7 @@ class PossessionModelInputTests(unittest.TestCase):
             status_path = root / "status.json"
             existing = root / "existing"
             existing.mkdir()
-            for name in ("possession_players.csv", "possession_model.json"):
+            for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                 (existing / name).write_text("preserve me")
             for label, changes in cases.items():
                 status_path.write_text(json.dumps({**complete, **changes}))
@@ -218,7 +354,7 @@ class PossessionModelInputTests(unittest.TestCase):
                             solver.assert_not_called()
                             selection.assert_not_called()
                 self.assertFalse((root / "new").exists())
-                for name in ("possession_players.csv", "possession_model.json"):
+                for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                     self.assertEqual((existing / name).read_text(), "preserve me")
 
     def test_player_names_come_from_real_raw_cache_without_network_or_edits(self):
@@ -258,14 +394,14 @@ class PossessionModelInputTests(unittest.TestCase):
             absent = root / "not-created"
             for output in (absent, root):
                 if output == root:
-                    for name in ("possession_players.csv", "possession_model.json"):
+                    for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                         (root / name).write_text("existing output")
                 with patch("possession_model.select_ridge_penalty") as selection:
                     with self.assertRaises(IncompleteSeasonError):
                         fit_possession_ridge(status_path=STATUS, output_dir=output)
                     selection.assert_not_called()
             self.assertFalse(absent.exists())
-            for name in ("possession_players.csv", "possession_model.json"):
+            for name in ("possession_players.csv", "possession_model.json", "possession_diagnostics.json"):
                 self.assertEqual((root / name).read_text(), "existing output")
 
     def test_pipeline_selects_refits_and_writes_separate_outputs(self):
@@ -284,6 +420,28 @@ class PossessionModelInputTests(unittest.TestCase):
             output = root / "outputs"
             fit = fit_possession_ridge(design, status_path=status, output_dir=output)
             metadata = json.loads((output / "possession_model.json").read_text())
+            diagnostics_path = output / 'possession_diagnostics.json'
+            diagnostics = json.loads(diagnostics_path.read_text())
+            self.assertEqual(diagnostics['schema_version'], 1)
+            self.assertEqual(diagnostics['season'], 'test fixture')
+            saved_status = json.loads(status.read_text())
+            self.assertEqual(diagnostics['audit_sha256'], hashlib.sha256(json.dumps(
+                saved_status, sort_keys=True, separators=(',', ':'), allow_nan=False,
+            ).encode('utf-8')).hexdigest())
+            self.assertEqual(diagnostics['holdout']['holdout_game_ids'], metadata['holdout_game_ids'])
+            self.assertEqual(diagnostics['holdout']['training_game_ids'], metadata['training_game_ids'])
+            self.assertEqual(diagnostics['model_settings']['selected_penalty'], metadata['selected_penalty'])
+            self.assertEqual(diagnostics['model_settings']['candidate_penalties'], list(RIDGE_PENALTY_GRID))
+            selection = _select_ridge_penalty(design, RIDGE_PENALTY_GRID,
+                                              tolerance=1e-10, max_iterations=None)
+            self.assertEqual(diagnostics['metrics']['ridge'], selection.holdout_diagnostics)
+            self.assertEqual(diagnostics['metrics']['training_mean_baseline'], selection.baseline_diagnostics)
+            self.assertEqual(diagnostics['stability'], selection.penalty_stability)
+            previous_diagnostics = diagnostics_path.read_bytes()
+            fit_possession_ridge(design, status_path=status, output_dir=output)
+            self.assertEqual(diagnostics_path.read_bytes(), previous_diagnostics)
+            self.assertNotIn('holdout_diagnostics', metadata)
+            self.assertNotIn('baseline_diagnostics', metadata)
             self.assertEqual(len(metadata["holdout_game_ids"]), 246)
             self.assertEqual(len(metadata["training_game_ids"]), 984)
             self.assertEqual(metadata["games_used"], 1230)
@@ -300,23 +458,40 @@ class PossessionModelInputTests(unittest.TestCase):
             self.assertEqual(len(records), len(design.player_ids))
             np.testing.assert_allclose([float(r["net_per_100"]) for r in records], summary.net_per_100)
             np.testing.assert_array_equal([int(r["offense_possessions"]) for r in records], summary.offense_possessions)
-            self.assertEqual({p.name for p in output.iterdir()}, {"possession_players.csv", "possession_model.json"})
+            self.assertEqual({p.name for p in output.iterdir()},
+                             {"possession_players.csv", "possession_model.json", "possession_diagnostics.json"})
             before = {p.name: p.read_bytes() for p in output.iterdir()}
-            for failure in ('serialization', 'publication'):
+            for failure in ('serialization', 'diagnostics serialization', 'full fit', 'publication',
+                            'diagnostics publication'):
                 with self.subTest(failure=failure):
                     original_replace = os.replace
                     calls = 0
                     def fail_second(source, destination):
                         nonlocal calls
                         calls += 1
-                        if calls == 2:
-                            raise OSError('injected second publication failure')
+                        if calls == (3 if failure == 'diagnostics publication' else 2):
+                            raise OSError('injected publication failure')
                         return original_replace(source, destination)
-                    blocker = (patch('possession_model.summarize_player_impacts', side_effect=ValueError('generation failed'))
-                               if failure == 'serialization' else patch('possession_model.os.replace', fail_second))
+                    def fail_full_fit(data, penalty, **kwargs):
+                        if len(set(data.game_ids)) == 1230:
+                            raise RuntimeError('full fit failed')
+                        return _solve_compact_ridge(data, penalty, **kwargs)
+                    blocker = {
+                        'serialization': patch('possession_model.summarize_player_impacts',
+                                               side_effect=ValueError('generation failed')),
+                        'diagnostics serialization': patch('possession_model.select_ridge_penalty', return_value=
+                            replace(selection, baseline_diagnostics={**selection.baseline_diagnostics,
+                                                                     'mae': float('nan')})),
+                        'full fit': patch('possession_model._solve_compact_ridge', side_effect=fail_full_fit),
+                    }.get(failure, patch('possession_model.os.replace', fail_second))
                     with blocker:
-                        with self.assertRaises((ValueError, OSError)):
+                        with self.assertRaises((ValueError, OSError, RuntimeError)):
                             fit_possession_ridge(design, status_path=status, output_dir=output)
+                        calls = 0
+                        absent = root / ('failed-' + failure)
+                        with self.assertRaises((ValueError, OSError, RuntimeError)):
+                            fit_possession_ridge(design, status_path=status, output_dir=absent)
+                        self.assertFalse(any(p.is_file() for p in absent.rglob('*')))
                     self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
 
     def test_pipeline_rejects_partial_design_even_with_complete_status(self):
@@ -366,6 +541,16 @@ class PossessionModelInputTests(unittest.TestCase):
         self.assertEqual(report.selected_penalty, min(report.holdout_errors, key=lambda p: (report.holdout_errors[p], p)))
         self.assertEqual(report.training_game_ids, training)
         self.assertEqual(report.holdout_game_ids, holdout)
+        selected_fit = next(fit for penalty, fit in fitted if penalty == report.selected_penalty)
+        predictions = (selected_fit.intercept
+                       + selected_fit.offense_effects[design.offense_indices[mask]].sum(axis=1)
+                       - selected_fit.defense_effects[design.defense_indices[mask]].sum(axis=1))
+        residuals = design.points_per_possession[mask] - predictions
+        self.assertEqual(report.holdout_diagnostics, {
+            'holdout_games': len(holdout), 'evaluated_possessions': int(mask.sum()),
+            'mae': float(np.mean(np.abs(residuals))),
+            'rmse': float(np.sqrt(report.holdout_errors[report.selected_penalty])),
+        })
         for bad_grid in ((), (0,), (float("nan"),)):
             with self.assertRaises(ValueError):
                 _select_ridge_penalty(design, bad_grid, tolerance=1e-10, max_iterations=None)
