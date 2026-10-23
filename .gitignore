@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Rotation Index project ---
+# Downloaded / generated data (keep out of Git)
+data/raw/
+data/cache/
+data/processed/
+# Local tool settings
+.claude/settings.local.json
+.DS_Store
