@@ -224,6 +224,8 @@ __marimo__/
 data/raw/
 data/cache/
 data/processed/
+data/*.csv
+data/*.json
 # Local tool settings
 .claude/settings.local.json
 .DS_Store

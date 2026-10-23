@@ -6,19 +6,24 @@ body {
     margin: 0;
     background: #f3f5f7;
     color: #17221b;
-    font-family: Arial, snas-serif;
+    font-family: Arial, sans-serif;
 }
 
 main {
     max-width: 960px;
     margin: 0 auto;
-    padding: 64px 29px;
+    padding: 48px 16px;
 }
 
 h1 {
-    margin-bottom: 9px;
+    margin-bottom: 4px;
     font-size: 42px;
     letter-spacing: -1.5px;
+}
+
+h2 {
+    margin-top: 40px;
+    font-size: 22px;
 }
 
 p {
@@ -26,9 +31,153 @@ p {
     color: #245c49;
 }
 
-p:last-of-type {
+.subtitle {
+    margin-top: 0;
+}
+
+.small {
+    font-size: 14px;
+}
+
+.notice {
     margin-top: 32px;
-    padding: 16px;
+    padding: 4px 16px;
     background: #e7eee9;
     border-left: 4px solid #39765e;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+th, td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #dfe5e1;
+    text-align: left;
+}
+
+.facts th {
+    width: 45%;
+    font-weight: normal;
+    color: #4b5a51;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.players td:nth-child(n+3) {
+    font-variant-numeric: tabular-nums;
+}
+
+.pos {
+    color: #1d6b3f;
+}
+
+.neg {
+    color: #a33a2b;
+}
+
+.low {
+    color: #7a857f;
+}
+
+.tag {
+    font-size: 12px;
+    padding: 1px 6px;
+    background: #eee;
+    border-radius: 4px;
+}
+
+form {
+    margin: 16px 0;
+}
+
+input {
+    width: 100px;
+    margin-left: 6px;
+}
+
+details {
+    margin-top: 12px;
+}
+
+code {
+    background: #fff;
+    padding: 1px 4px;
+}
+
+/* Possession cache audit: background is "not cached"; drawn segments are validated/failed. */
+.progress {
+    display: flex;
+    height: 14px;
+    margin: 8px 0;
+    overflow: hidden;
+    background: #d5dcd8;
+    border-radius: 7px;
+}
+
+.bar {
+    min-width: 3px;
+}
+
+.validated {
+    background: #39765e;
+}
+
+.failed {
+    background: #a33a2b;
+}
+
+.missing {
+    background: #d5dcd8;
+}
+
+.key {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin: 0 4px 0 10px;
+    border-radius: 2px;
+    vertical-align: baseline;
+}
+
+.legend .key:first-child {
+    margin-left: 0;
+}
+
+.audit h3 {
+    margin-top: 28px;
+}
+
+.failures code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.id-list {
+    overflow-wrap: anywhere;
+}
+
+.input-problems li {
+    margin-bottom: 6px;
+}
+
+.stale-tag, .missing-tag, .unverifiable-tag {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stale-tag {
+    background: #f6e3c8;
+}
+
+.missing-tag {
+    background: #e2e6ea;
+}
+
+.unverifiable-tag {
+    background: #f3d6d1;
 }
