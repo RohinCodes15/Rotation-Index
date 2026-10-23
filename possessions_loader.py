@@ -23,6 +23,10 @@ ROOT = BASE / "data/cache/possessions"
 RAW = ROOT / "pbpstats"
 NORMALIZED = ROOT / "games"
 SEASON = "2024-25"
+LINEAGE_SCHEMA_VERSION = 1
+NORMALIZED_SCHEMA_VERSION = 1
+LINEAGE_COMPONENTS = (("possessions", "possessions"), ("game_metadata", "game"),
+                      ("parser_version", "pbpstats_version"), ("normalized_schema_version", "schema_version"))
 
 # Individually verified NBA live-feed corrections. Each entry is guarded by the
 # game/action identity and the exact feed value it replaces; never infer a sub.
@@ -214,7 +218,7 @@ def normalize(game_info):
         raise ValueError("missing team possessions")
     # API possession totals can differ by provider; report exact differences, never hide them.
     differences = {str(game_info[f"{s}TeamId"]): counts[str(game_info[f"{s}TeamId"])] - game_info[f"{s}Possessions"] for s in ("Home", "Away")}
-    return {"schema_version": 1, "pbpstats_version": version("pbpstats"),
+    return {"schema_version": NORMALIZED_SCHEMA_VERSION, "pbpstats_version": version("pbpstats"),
             "game": game_info, "score_by_team": dict(score),
             "counted_possessions_by_team": dict(counts),
             "possession_count_difference_vs_api": differences,
@@ -258,10 +262,10 @@ def _audit_lineage(raw_path, normalized_path, *, result=None, raw_before=None):
     whose canonical output equals the saved normalized file gets verified_inputs.
     Unreadable/missing files and failed replays never receive inferred lineage.
     """
-    lineage = {"method": "canonical_normalization_replay_v1", "verified": False,
+    lineage = {"schema_version": LINEAGE_SCHEMA_VERSION,
+               "method": "canonical_normalization_replay_v1", "verified": False,
                "raw_sha256": None, "normalized_sha256": None}
-    components = (("possessions", "possessions"), ("game_metadata", "game"),
-                  ("parser_version", "pbpstats_version"), ("normalized_schema_version", "schema_version"))
+    components = LINEAGE_COMPONENTS
     contents = {}
     for label, path in (("raw", raw_path), ("normalized", normalized_path)):
         try:
@@ -296,6 +300,24 @@ def _audit_lineage(raw_path, normalized_path, *, result=None, raw_before=None):
         lineage["status"] = "unverifiable"
         lineage["reason"] = "raw file changed during normalization"
         return lineage
+    try:
+        for _, field in components:
+            result[field]
+        if (result['schema_version'] != NORMALIZED_SCHEMA_VERSION
+                or not isinstance(result['possessions'], list)
+                or not isinstance(result['game'], dict)
+                or not result['game'].get('GameId')
+                or not isinstance(result['pbpstats_version'], str) or not result['pbpstats_version']
+                or not isinstance(result['applied_corrections'], list)):
+            raise ValueError('missing or invalid replay components')
+        for correction in result['applied_corrections']:
+            if (correction['game_id'] != result['game']['GameId']
+                    or any(type(correction[key]) is not int or correction[key] <= 0
+                           for key in ('action_number', 'expected_feed_player1_id', 'corrected_player1_id'))):
+                raise ValueError('invalid correction identity')
+    except (KeyError, TypeError, ValueError):
+        lineage.update(status='unverifiable', reason='replay lacks required components or correction identity')
+        return lineage
     lineage["replayed_normalized_sha256"] = _json_fingerprint(result)
     lineage["replayed_corrections_sha256"] = _json_fingerprint(result["applied_corrections"])
     # Expose component changes even when the saved file cannot be verified.
@@ -329,12 +351,13 @@ def _audit_lineage(raw_path, normalized_path, *, result=None, raw_before=None):
     return lineage
 
 
-def audit_cached_season():
-    """Audit every listed game locally; write only the deterministic status report.
+def audit_cached_season(*, write_status=True):
+    """Audit every listed game locally; optionally write the deterministic status report.
 
     Missing and invalid game files are recorded independently; neither prevents
     auditing later cached games. normalize() uses pbpstats' file-only provider.
     No raw or normalized game files are created, changed, or deleted here.
+    Set write_status=False for a fully read-only audit.
     """
     status = {
         "season": SEASON, "season_type": "Regular Season", "mode": "offline_audit",
@@ -360,7 +383,8 @@ def audit_cached_season():
         status["expected_game_ids"] = sorted(ids)
     except Exception as error:
         status["error"] = f"{type(error).__name__}: {error}"
-        save(ROOT / "status.json", status, pretty=True)
+        if write_status:
+            save(ROOT / "status.json", status, pretty=True)
         return status
 
     flag_counts = Counter()
@@ -424,8 +448,67 @@ def audit_cached_season():
             f"{status['games_failed']} failed, {status['games_missing']} missing "
             f"of {status['games_expected']} expected games"
         )
-    save(ROOT / "status.json", status, pretty=True)
+    if write_status:
+        save(ROOT / "status.json", status, pretty=True)
     return status
+
+
+def rebuild_cached_game(game_id, *, dry_run=False):
+    """Rebuild one normalized game from its cached raw play-by-play; local files only.
+
+    normalize() validates the raw file, applies only fully guarded corrections and
+    enforces five-player lineups; _audit_lineage() supplies the audit's fingerprints.
+    Dry runs and failures write nothing. Otherwise the result is staged beside the
+    target and replaces it only after the staged copy verifies. Raw files,
+    status.json and estimate outputs are never touched; rerun --offline afterwards
+    so the audit (and so the dashboard and model gate) attests the new file.
+    """
+    games = json.loads((ROOT / "games.json").read_text())["results"]
+    info = next((g for g in games if g.get("GameId") == game_id), None)
+    if info is None:
+        raise ValueError(f"{game_id} is not listed in the cached games.json")
+    raw_path = RAW / "pbp" / f"live_{game_id}.json"
+    target = NORMALIZED / f"{game_id}.json"
+    report = {"game_id": game_id, "dry_run": dry_run, "written": False}
+    if not raw_path.exists():
+        return {**report, "status": "missing_raw",
+                "reason": "Waiting on raw play-by-play; nothing was created."}
+    try:
+        raw_before = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+        result = normalize(info)
+    except Exception as error:
+        message = f"{type(error).__name__}: {error}".replace(str(RAW), "<raw_cache>")
+        return {**report, "status": "failed", "error": message}
+    rows = result["possessions"]
+    report.update(
+        possession_segments=len(rows),
+        counted_possessions=sum(r["counted_possession"] for r in rows),
+        model_eligible_possessions=sum(r["model_eligible"] for r in rows),
+        score_by_team=result["score_by_team"],
+        applied_corrections=result["applied_corrections"],
+    )
+    current = _audit_lineage(raw_path, target, result=result, raw_before=raw_before)
+    if current["status"] == "verified":
+        # Same canonical content: keep the existing bytes so audited byte hashes stay valid.
+        return {**report, "status": "unchanged", "lineage": current}
+    if current["status"] == "unverifiable":  # raw file changed during normalization
+        return {**report, "status": "failed", "error": current["reason"]}
+    if dry_run:
+        action = "would_create" if current["status"] == "missing_normalized" else "would_replace"
+        return {**report, "status": action, "previous_lineage_status": current["status"]}
+    staged = target.with_name(target.name + ".rebuild.tmp")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_text(json.dumps(result, separators=(",", ":")))  # save()'s compact format
+        lineage = _audit_lineage(raw_path, staged, result=result, raw_before=raw_before)
+        if lineage["status"] != "verified":
+            raise ValueError(f"staged file did not verify ({lineage['status']})")
+        staged.replace(target)
+    except Exception as error:
+        staged.unlink(missing_ok=True)
+        return {**report, "status": "failed", "error": f"{type(error).__name__}: {error}"}
+    return {**report, "status": "rebuilt", "written": True,
+            "previous_lineage_status": current["status"], "lineage": lineage}
 
 
 def main(offline=False):
@@ -501,4 +584,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--offline", action="store_true", help="audit every listed game using cached files only; never download")
-    main(offline=parser.parse_args().offline)
+    parser.add_argument("--rebuild", metavar="GAME_ID", help="rebuild one normalized game from its cached raw file; never download")
+    parser.add_argument("--dry-run", action="store_true", help="with --rebuild: report what would change and write nothing")
+    args = parser.parse_args()
+    if args.dry_run and not args.rebuild:
+        parser.error("--dry-run requires --rebuild GAME_ID")
+    if args.rebuild:
+        report = rebuild_cached_game(args.rebuild, dry_run=args.dry_run)
+        print(json.dumps(report, indent=2), flush=True)
+        raise SystemExit(0 if report["status"] in ("unchanged", "rebuilt", "would_create", "would_replace") else 1)
+    main(offline=args.offline)

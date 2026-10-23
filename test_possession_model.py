@@ -6,6 +6,7 @@ import csv
 import tempfile
 import hashlib
 import unittest
+import os
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -52,6 +53,37 @@ def complete_audit_fixture():
 
 
 class PossessionModelInputTests(unittest.TestCase):
+    def test_staging_and_publication_failures_preserve_output_set(self):
+        from possession_model import _publish_estimate_outputs
+        payloads = {'possession_players.csv': 'new csv\n', 'possession_model.json': '{"new": true}\n'}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for preexisting in (True, False):
+                for failure in ('generation', 'first publish', 'second publish'):
+                    with self.subTest(preexisting=preexisting, failure=failure):
+                        for name in payloads:
+                            (root / name).unlink(missing_ok=True)
+                            if preexisting:
+                                (root / name).write_bytes(b'old estimate\x00\r\n')
+                        before = {p.name: p.read_bytes() for p in root.iterdir()}
+                        replace_file, write_bytes = os.replace, Path.write_bytes
+                        calls = 0
+                        def publish(source, destination):
+                            nonlocal calls
+                            calls += 1
+                            if calls == (1 if failure == 'first publish' else 2):
+                                raise OSError('injected publish failure')
+                            return replace_file(source, destination)
+                        def generate(path, content):
+                            if path.name == 'possession_model.json':
+                                raise OSError('injected output generation failure')
+                            return write_bytes(path, content)
+                        target = 'pathlib.Path.write_bytes' if failure == 'generation' else 'possession_model.os.replace'
+                        with patch(target, generate if failure == 'generation' else publish):
+                            with self.assertRaises(OSError):
+                                _publish_estimate_outputs(payloads, root)
+                        self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+
     def test_inputs_changed_during_fitting_are_rejected_before_output(self):
         real = self.real_design()
         status = complete_audit_fixture()
@@ -269,6 +301,23 @@ class PossessionModelInputTests(unittest.TestCase):
             np.testing.assert_allclose([float(r["net_per_100"]) for r in records], summary.net_per_100)
             np.testing.assert_array_equal([int(r["offense_possessions"]) for r in records], summary.offense_possessions)
             self.assertEqual({p.name for p in output.iterdir()}, {"possession_players.csv", "possession_model.json"})
+            before = {p.name: p.read_bytes() for p in output.iterdir()}
+            for failure in ('serialization', 'publication'):
+                with self.subTest(failure=failure):
+                    original_replace = os.replace
+                    calls = 0
+                    def fail_second(source, destination):
+                        nonlocal calls
+                        calls += 1
+                        if calls == 2:
+                            raise OSError('injected second publication failure')
+                        return original_replace(source, destination)
+                    blocker = (patch('possession_model.summarize_player_impacts', side_effect=ValueError('generation failed'))
+                               if failure == 'serialization' else patch('possession_model.os.replace', fail_second))
+                    with blocker:
+                        with self.assertRaises((ValueError, OSError)):
+                            fit_possession_ridge(design, status_path=status, output_dir=output)
+                    self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
 
     def test_pipeline_rejects_partial_design_even_with_complete_status(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -370,6 +370,14 @@ class DashboardDisplayTests(unittest.TestCase):
             ("audit replay unverifiable", "unverifiable", edit_audit_record(
                 lambda r: r["lineage"].update(status="unverifiable", verified=False, reason="replay failed"))),
             ("audit lineage absent", "unverifiable", edit_audit_record(lambda r: r.pop("lineage"))),
+            ("old lineage version absent", "unverifiable", edit_audit_record(
+                lambda r: r['lineage'].pop('schema_version'))),
+            ("unsupported lineage version", "unverifiable", edit_audit_record(
+                lambda r: r['lineage'].update(schema_version=999))),
+            ("component fingerprint absent", "unverifiable", edit_audit_record(
+                lambda r: r['lineage'].pop('recorded_possessions_sha256'))),
+            ("old parser environment", "stale", edit_audit_record(
+                lambda r: r['lineage']['verified_inputs'].update(pbpstats_version='old parser'))),
             ("audit game record absent", "unverifiable", lambda: self.write_json(
                 "cache/possessions/status.json", {**audited, "game_results": {
                     gid: record for gid, record in audited["game_results"].items() if gid != game_id}})),

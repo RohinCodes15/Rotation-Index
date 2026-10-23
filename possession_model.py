@@ -10,6 +10,7 @@ import csv
 import io
 import os
 import tempfile
+import shutil
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,7 +116,8 @@ def _validated_lineup(values, *, side, game_id, period, number):
 
 def build_possession_rows(game_data):
     """Extract real, countable, unambiguous possession rows from one normalized game."""
-    if game_data.get("schema_version") != 1:
+    from possessions_loader import NORMALIZED_SCHEMA_VERSION
+    if game_data.get("schema_version") != NORMALIZED_SCHEMA_VERSION:
         raise ValueError("unsupported normalized possession schema")
     game = game_data.get("game")
     possessions = game_data.get("possessions")
@@ -355,7 +357,7 @@ def _input_file_facts(path, *, normalized=False, cache=None):
     With a cache dict, results are reused while the file's (mtime_ns, size,
     inode) signature is unchanged; without one, current bytes are always read.
     """
-    from possessions_loader import _json_fingerprint
+    from possessions_loader import _json_fingerprint, LINEAGE_COMPONENTS
 
     try:
         stat = path.stat()
@@ -385,9 +387,7 @@ def _input_file_facts(path, *, normalized=False, cache=None):
                          pbpstats_version=saved["pbpstats_version"])
             facts["components"] = {
                 label: _json_fingerprint(saved[field])
-                for label, field in (("possessions", "possessions"), ("game_metadata", "game"),
-                                     ("parser_version", "pbpstats_version"),
-                                     ("normalized_schema_version", "schema_version"))
+                for label, field in LINEAGE_COMPONENTS
             }
         except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
             facts["state"] = "invalid"
@@ -412,6 +412,21 @@ def check_game_inputs(game_id, result, raw_root, normalized_root, *, cache=None)
     if lineage.get("status") in LINEAGE_AT_AUDIT:
         return GameInputCheck(*LINEAGE_AT_AUDIT[lineage["status"]])
     verified = lineage.get("verified_inputs")
+    from possessions_loader import LINEAGE_SCHEMA_VERSION, LINEAGE_COMPONENTS, version
+    if lineage.get('status') == 'verified':
+        required = ('raw_sha256', 'normalized_sha256', 'normalized_content_sha256',
+                    'replayed_normalized_sha256', 'recorded_corrections_sha256', 'replayed_corrections_sha256')
+        required += tuple(f'{prefix}_{label}_sha256' for prefix in ('recorded', 'replayed')
+                          for label, _ in LINEAGE_COMPONENTS)
+        attested = ('raw_sha256', 'normalized_content_sha256', 'corrections_sha256', 'pbpstats_version')
+        attested += tuple(f'{label}_sha256' for label, _ in LINEAGE_COMPONENTS)
+        if (type(lineage.get('schema_version')) is not int
+                or lineage['schema_version'] != LINEAGE_SCHEMA_VERSION
+                or any(not lineage.get(key) for key in required)
+                or not isinstance(verified, dict) or any(not verified.get(key) for key in attested)):
+            return GameInputCheck('unverifiable', 'The audit lineage version or required components are missing or unsupported.')
+        if verified['pbpstats_version'] != version('pbpstats'):
+            return GameInputCheck('stale', 'The installed parser version differs from the audited parser; rerun the offline audit.')
     if not (lineage.get("verified") is True and lineage.get("status") == "verified"
             and lineage.get("method") == LINEAGE_METHOD and isinstance(verified, dict)):
         reason = lineage.get("reason") or "the audit did not verify them"
@@ -611,22 +626,47 @@ def fit_possession_ridge(design=None, penalties=RIDGE_PENALTY_GRID, *,
     # silently overwrite valid outputs using an earlier audit snapshot.
     if require_complete_season(status_path, game_cache=game_cache) != status:
         raise IncompleteSeasonError("cache audit changed during fitting; estimates were not written")
-    # Stage both complete payloads before replacing either destination.
+    _publish_estimate_outputs(payloads, output_dir)
+    return fit
+
+
+def _publish_estimate_outputs(payloads, output_dir):
+    """Stage and verify the complete set; roll back caught publication failures."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    staged = []
+    staging = Path(tempfile.mkdtemp(prefix=".possession-estimates-", dir=output_dir))
+    published = []
+    cleanup = True
     try:
+        # Backups and staged files share the destinations' filesystem for rename.
         for name, content in payloads.items():
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
-                                             dir=output_dir, delete=False) as temp:
-                staged.append((Path(temp.name), output_dir / name))
-                temp.write(content)
-        for temporary, destination in staged:
-            os.replace(temporary, destination)
+            encoded = content.encode('utf-8')
+            (staging / name).write_bytes(encoded)
+            if (staging / name).read_bytes() != encoded:
+                raise OSError(f"staged estimate verification failed: {name}")
+            destination = output_dir / name
+            if destination.exists():
+                shutil.copy2(destination, staging / (name + '.previous'))
+        try:
+            for name in payloads:
+                os.replace(staging / name, output_dir / name)
+                published.append(name)
+        except BaseException:
+            try:
+                for name in reversed(published):
+                    previous = staging / (name + '.previous')
+                    if previous.exists():
+                        os.replace(previous, output_dir / name)
+                    else:
+                        (output_dir / name).unlink()
+            except BaseException as error:
+                cleanup = False
+                raise OSError(f"estimate rollback failed; recovery files retained in {staging}") from error
+            raise
     finally:
-        for temporary, _ in staged:
-            temporary.unlink(missing_ok=True)
-    return fit
+        if cleanup:
+            # Cleanup failure must not turn an already published fit into a failure.
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 @dataclass(frozen=True)

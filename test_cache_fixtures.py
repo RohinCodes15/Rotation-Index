@@ -6,7 +6,7 @@ so tests can exercise file freshness without downloading or fabricating raw NBA 
 import hashlib
 import json
 
-from possessions_loader import _audit_lineage
+from possessions_loader import _audit_lineage, version
 
 
 def attach_lineage_fixture(status, root):
@@ -18,7 +18,7 @@ def attach_lineage_fixture(status, root):
             continue
         raw = raw_dir / f"live_{gid}.json"
         normalized_path = normalized_dir / f"{gid}.json"
-        normalized = {"game": {"GameId": gid}, "pbpstats_version": "test fixture",
+        normalized = {"game": {"GameId": gid}, "pbpstats_version": version("pbpstats"),
                       "schema_version": 1, "possessions": [],
                       "applied_corrections": record.get("applied_corrections", [])}
         # Preserve files between display requests so freshness tests are meaningful.

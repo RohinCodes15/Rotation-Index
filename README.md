@@ -54,6 +54,31 @@ missing or mismatched outputs are withheld. When neither status exists, it shows
 
 ## Audit the possession cache offline
 
+For a read-only developer check (dependencies already installed):
+
+```bash
+.venv/bin/python -B audit_possessions.py          # concise summary
+.venv/bin/python -B audit_possessions.py --json   # full deterministic JSON report
+```
+
+This entry point reuses the existing offline audit and shared `check_game_inputs()`.
+It scans every expected ID, including missing games, and reports validation errors,
+possession counts, corrections, and per-game freshness. It does not download, repair,
+save an audit report, or create/overwrite estimates. JSON keys and game IDs are sorted;
+unchanged inputs produce identical output. Waiting on raw data is `missing_raw`, separate
+from missing normalized inputs. A fresh rebuild is performed for this new report, so
+formatting-only changes can be fresh here even when an older saved audit labels them stale.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | All 1,230 games validated and all inputs fresh. |
+| 1 | Incomplete cache: raw games are missing, but available games and inputs pass. |
+| 2 | Invalid cached games or missing, stale, or unverifiable model inputs (takes precedence over missing raw games). Also used by argparse for invalid arguments. |
+| 3 | Audit could not scan a valid 1,230-game season list; see the report error. |
+
+The existing command below deliberately writes `status.json`; use the read-only entry
+point above when inspecting a cache without changing `data/`.
+
 `possessions_loader.py` builds a possession-level cache from NBA live play-by-play (parsed with `pbpstats`).
 See [POSSESSION_DATA.md](POSSESSION_DATA.md) for validation and correction details.
 
@@ -130,6 +155,21 @@ inputs block fitting and output writes. Refresh them separately and rerun the au
 are rechecked before output publication. Single-season estimates remain noisy and subject
 to lineup/role confounding.
 
+To refresh one cached game's normalized file from its existing raw play-by-play:
+
+```bash
+.venv/bin/python -B possessions_loader.py --rebuild 0022400061 --dry-run   # report only
+.venv/bin/python -B possessions_loader.py --rebuild 0022400061             # rebuild
+.venv/bin/python -B possessions_loader.py --offline                        # re-attest
+```
+
+The rebuild uses the same raw validation, guarded corrections, five-player lineup check,
+and lineage fingerprints as the audit. It writes to a staging file and replaces the old
+normalized file only after the staged copy verifies; on any failure the old file is left
+as it was. It never downloads, edits raw files, `status.json`, or estimate outputs, and a
+game without raw data is reported as `missing_raw` with nothing created. The dashboard and
+model gate keep treating the game as stale until the offline audit is rerun.
+
 Fitting is blocked by any of the following:
 
 - An absent, unfinished, inconsistent, or older non-audit status report.
@@ -174,13 +214,22 @@ normalized schema version. Recorded, replayed, and verified component values mus
 file existence or a successful raw validation alone is insufficient. Fingerprints establish
 consistency with the audit, not independent authentication of an edited audit report.
 Rerun the audit after changing correction/validation code or the parser environment.
+Each manifest carries an explicit lineage `schema_version`; older or unsupported verified
+records and records missing required component fingerprints are unverifiable. The gate
+also compares the audited parser version with the installed `pbpstats` version. Parser
+upgrades require a new audit; normalization changes must bump the normalized schema
+version, and changes to the lineage contract must bump its version. Correction fingerprints
+include the game ID, action number, expected old player ID, and corrected player ID.
 
 Gate rejection, solver failure, or serialization failure occurs before output files or
 directories are created or replaced. Immediately before publishing, fitting performs a
 complete final gate check: it rereads the audit and every game's input bytes without the
 dashboard's in-memory cache, checks all fingerprints, and rejects a changed audit snapshot.
-Only after this succeeds are both output payloads staged and destinations replaced.
-Thus a rejected fit preserves previously saved estimates and creates no new estimates.
+Only after this succeeds are both output payloads staged, read back to verify their exact
+bytes, and destinations replaced. Previous outputs are backed up before any replacement;
+a caught publication failure restores replaced files and removes newly published files
+that had no predecessor. Staging failures leave previous outputs untouched. Thus a
+rejected fit preserves previously saved estimates and creates no new estimates.
 
 The dashboard caches file facts by path, modification time in nanoseconds, size, and inode,
 and caches gate results using those signatures and the audit-file signature. An edit that
@@ -189,6 +238,9 @@ the running dashboard showing cached results. Restart the dashboard to discard i
 in-memory caches. Fitting's uncached final recheck does not inherit this limitation.
 There is no filesystem lock: concurrent edits after the final check remain possible, and
 the two output replacements are individually atomic, not a crash-safe pair transaction.
+A process crash or power loss can interrupt publication before rollback. If the filesystem
+also prevents rollback, the error reports the retained staging directory for recovery;
+backups are not deleted in that case. Concurrent writers/readers are not synchronized.
 
 ## Offline checks
 
