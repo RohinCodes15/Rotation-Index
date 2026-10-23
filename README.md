@@ -54,6 +54,11 @@ missing or mismatched outputs are withheld. When neither status exists, it shows
 
 ## Audit the possession cache offline
 
+Use this offline sequence: inspect without writing; dry-run a rebuild only for a game
+whose raw file already exists; explicitly rebuild if needed; then save a new offline
+audit. Fit only when every one of the 1,230 games validates and all inputs are fresh.
+Missing raw games cannot be repaired by this workflow and must remain waiting.
+
 For a read-only developer check (dependencies already installed):
 
 ```bash
@@ -167,8 +172,19 @@ The rebuild uses the same raw validation, guarded corrections, five-player lineu
 and lineage fingerprints as the audit. It writes to a staging file and replaces the old
 normalized file only after the staged copy verifies; on any failure the old file is left
 as it was. It never downloads, edits raw files, `status.json`, or estimate outputs, and a
-game without raw data is reported as `missing_raw` with nothing created. The dashboard and
-model gate keep treating the game as stale until the offline audit is rerun.
+game without raw data is reported as `missing_raw` with nothing created. Changed normalized
+bytes cannot pass the saved audit's freshness check until the offline audit is rerun.
+Dry-run executes the same parsing, validation, corrections, and fingerprint comparison,
+but writes nothing: it reports whether a normalized file would be created, replaced,
+or left unchanged. Rebuilding an unchanged game may leave its existing attestation valid;
+changed inputs and old manifest versions require a new audit. These commands do not
+fit a model. A read-only inspection does not update the saved dashboard audit.
+
+Correction validation fails closed: a correction is applied only when the game, action,
+period, clock, team, substitution type, and expected original player match its verified
+rule. A mismatch fails that game's validation rather than guessing a replacement or
+loosening the five-player check. The raw feed remains unchanged, and applied corrections
+and evidence are recorded in the audit.
 
 Fitting is blocked by any of the following:
 
@@ -201,6 +217,7 @@ match the audit. Legacy estimates remain hidden whenever possession status exist
 | Input state | Meaning |
 | --- | --- |
 | Waiting on raw data (`missing_raw`) | The audit found no raw play-by-play to validate. These games are counted separately, not as stale or unverifiable normalized inputs. |
+| Failed raw validation (`failed`) | A raw file exists but parsing, scoring, lineup, or correction validation failed. See `validation_errors`; this is not a missing raw game. Its model inputs cannot be certified. |
 | Fresh | Current raw and normalized files match verified audit records and all required component fingerprints. |
 | Stale | Files or recorded components disagree with the audit, or the audit found saved inputs differed from a fresh rebuild. Even formatting-only byte changes count. |
 | Missing | A normalized input was absent at audit time, or a previously audited raw or normalized file has since been removed. |
@@ -252,6 +269,13 @@ python -B test_model.py   # legacy model's synthetic offline checks
 Audit tests block/count HTTP and socket attempts and use temporary cache copies. Model
 tests cover gate rejections, numerical behavior, and isolated temporary output fixtures;
 they do not generate real season estimates. No test downloads data or changes raw caches.
+The audit-command tests execute both JSON and summary modes against temporary copies
+of the real cached opener plus the full season ID list, including all 1,229 missing raw
+games. They check deterministic reports and unchanged fixture files, plus failed, stale,
+and unverifiable cases. Rebuild tests cover dry-run without writes and guarded failures;
+publication tests inject generation/replacement failures and check byte-for-byte recovery.
+Synthetic full-season fixtures exercise successful fitting and dashboard display without
+claiming that the incomplete real cache is ready.
 
 ## Legacy lineup-total data checks
 
