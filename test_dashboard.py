@@ -1,6 +1,7 @@
 """Offline Flask display checks. Run: python -m unittest test_dashboard."""
 
 import json
+from html.parser import HTMLParser
 import shutil
 import tempfile
 import unittest
@@ -132,6 +133,7 @@ class DashboardDisplayTests(unittest.TestCase):
     def test_complete_legacy_inputs_show_labeled_estimates(self):
         self.legacy_files()
         html = self.page()
+        self.assertIn('<div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">', html)
         self.assertIn("Lineup-total player estimates", html)
         self.assertIn("Legacy Fixture Player", html)
         self.assertNotIn('class="overview"', html)
@@ -243,6 +245,7 @@ class DashboardDisplayTests(unittest.TestCase):
         html = self.client.get("/?min_poss=0").get_data(as_text=True)
         self.assert_hidden(html)
         self.assertIn("Possession-level player estimates", html)
+        self.assertIn('<div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">', html)
         self.assertIn("Possession model details", html)
         self.assertNotIn("Possession cache incomplete", html)
         self.assertIn('<dd class="overview-value">Available</dd>', html)
@@ -285,10 +288,12 @@ class DashboardDisplayTests(unittest.TestCase):
         html = self.page()
         self.assertIn("Possession-level player estimates", html)
         self.assert_hidden(html)
-        self.assertIn("<tr><th>Fresh (match the audit)</th><td>1,230 of 1,230</td></tr>", html)
-        for label in ("Stale (changed since the audit)", "Missing normalized file", "Could not be verified",
-                      "Waiting on raw play-by-play"):
-            self.assertIn(f"<tr><th>{label}</th><td>0</td></tr>", html)
+        self.assertIn("<tr class=\"input-fresh\"><th scope=\"row\">Fresh (match the audit)</th><td>1,230 of 1,230</td></tr>", html)
+        for state, label in (("stale", "Stale (changed since the audit)"),
+                             ("missing", "Missing normalized file"),
+                             ("unverifiable", "Could not be verified"),
+                             ("waiting", "Waiting on raw play-by-play")):
+            self.assertIn(f'<tr class="input-{state}"><th scope="row">{label}</th><td>0</td></tr>', html)
         self.assertIn("All model inputs match the audited cache.", html)
         self.assertIn("Every game's model inputs match the audit", html)
         self.assertNotIn(self.OUT_OF_DATE, html)
@@ -346,8 +351,8 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertIn(str(escape(reason)), html)
         labels = {"stale": "Stale (changed since the audit)", "missing": "Missing normalized file",
                   "unverifiable": "Could not be verified"}
-        self.assertIn(f"<tr><th>{labels[category]}</th><td>1</td></tr>", html)
-        self.assertIn("<tr><th>Fresh (match the audit)</th><td>1,229 of 1,230</td></tr>", html)
+        self.assertIn(f'<tr class="input-{category}"><th scope="row">{labels[category]}</th><td>1</td></tr>', html)
+        self.assertIn("<tr class=\"input-fresh\"><th scope=\"row\">Fresh (match the audit)</th><td>1,229 of 1,230</td></tr>", html)
         # Cache counts and audit details are preserved; saved outputs are untouched.
         self.assertIn("<tr><th>Validated</th><td>1,230</td></tr>", html)
         self.assertEqual({n: (self.data / n).read_bytes() for n in saved_outputs}, saved_outputs)
@@ -477,7 +482,7 @@ class DashboardDisplayTests(unittest.TestCase):
                     if category == "fresh":
                         self.assertIsNone(error)
                         self.assertIn("Possession-level player estimates", html)
-                        self.assertIn("<tr><th>Fresh (match the audit)</th><td>1,230 of 1,230</td></tr>", html)
+                        self.assertIn("<tr class=\"input-fresh\"><th scope=\"row\">Fresh (match the audit)</th><td>1,230 of 1,230</td></tr>", html)
                     else:
                         # The gate stops on this game with exactly the dashboard's classification.
                         self.assertIsNotNone(error)
@@ -536,11 +541,13 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assert_possession_hidden(html)
         self.assertIn(self.UNAVAILABLE, html)
         self.assertNotIn(self.OUT_OF_DATE, html)
-        self.assertIn("<tr><th>Fresh (match the audit)</th><td>1 of 1,230</td></tr>", html)
-        self.assertIn("<tr><th>Waiting on raw play-by-play</th><td>1,229</td></tr>", html)
+        self.assertIn("<tr class=\"input-fresh\"><th scope=\"row\">Fresh (match the audit)</th><td>1 of 1,230</td></tr>", html)
+        self.assertIn("<tr class=\"input-waiting\"><th scope=\"row\">Waiting on raw play-by-play</th><td>1,229</td></tr>", html)
         self.assertNotIn('class="input-problems"', html)
-        for label in ("Stale (changed since the audit)", "Could not be verified", "Missing normalized file"):
-            self.assertIn(f"<tr><th>{label}</th><td>0</td></tr>", html)
+        for state, label in (("stale", "Stale (changed since the audit)"),
+                             ("unverifiable", "Could not be verified"),
+                             ("missing", "Missing normalized file")):
+            self.assertIn(f'<tr class="input-{state}"><th scope="row">{label}</th><td>0</td></tr>', html)
 
     def test_real_incomplete_cache_overview_shows_counts_and_locked_estimates(self):
         real_root = REAL_GAME.parent.parent
@@ -623,7 +630,7 @@ class DashboardDisplayTests(unittest.TestCase):
         ]})
         correction = {"game_id": "0022400002", "action_number": 509, "period": 4, "display_clock": "4:20",
                       "action_type": "substitution", "sub_type": "out", "expected_feed_player1_id": 201143,
-                      "corrected_player1_id": 1628436, "corrected_player_name": "Fixture Player",
+                      "corrected_player1_id": 1628436, "corrected_player_name": "Luke Kornet",
                       "reason": "Fixture game book reason.", "evidence_url": "https://example.invalid/book.pdf"}
         failed, missing = ["0022400001"], self.FIXTURE_IDS[5:10] + self.FIXTURE_IDS[20:]
         self.audit_status(failed=failed, missing=missing, corrections=[correction])
@@ -639,19 +646,83 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertIn("1 cached game failed validation", html)
         # Failure details name the game from the local game list and quote the error.
         self.assertIn("<strong>0022400001 (ATL at BOS, 2024-11-12)</strong>: <code>ValueError: fixture failure for 0022400001</code>", html)
-        self.assertIn("corrected to Fixture Player (ID 1628436)", html)
+        self.assertIn("corrected to Luke Kornet (ID 1628436)", html)
         self.assertIn("the feed listed player 201143", html)
         self.assertIn("Fixture game book reason.", html)
         self.assertIn('href="https://example.invalid/book.pdf"', html)
         self.assertIn(f"{self.FIXTURE_IDS[5]}–{self.FIXTURE_IDS[9]}, {self.FIXTURE_IDS[20]}–{self.FIXTURE_IDS[-1]}", html)
         self.assertIn('class="bar validated" style="width: 1.14%"', html)
         self.assertIn('class="bar failed"', html)
+        self.assertIn('<span class="badge badge-bad">1 failed</span>', html)
+        self.assertIn('<span class="badge badge-muted">1 recorded</span>', html)
+
+        class VisibleCorrection(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.depth = 0
+                self.text = []
+                self.links = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "details":
+                    self.depth += 1
+                if tag == "a" and not self.depth:
+                    self.links.append(dict(attrs).get("href"))
+
+            def handle_endtag(self, tag):
+                if tag == "details":
+                    self.depth -= 1
+
+            def handle_data(self, data):
+                if not self.depth:
+                    self.text.append(data)
+
+        visible = VisibleCorrection()
+        visible.feed(html)
+        self.assertIn("corrected to Luke Kornet", "".join(visible.text))
+        self.assertIn("Evidence", "".join(visible.text))
+        self.assertIn(correction["evidence_url"], visible.links)
+        self.assertIn('<summary>Why estimates stay hidden</summary>', html)
+        self.assertIn('Estimates from a partial season would reflect only', html)
+        self.assertIn('<summary>How input freshness is checked</summary>', html)
+
+    def test_dashboard_accessibility_labels_and_responsive_styles(self):
+        self.audit_status(missing=self.FIXTURE_IDS[1:])
+        html = self.page()
+        self.assertIn('<html lang="en">', html)
+        self.assertIn('name="viewport" content="width=device-width, initial-scale=1.0"', html)
+        self.assertIn('<h3 id="model-inputs-title">Model inputs</h3>', html)
+        self.assertIn('<table class="facts inputs" aria-labelledby="model-inputs-title">', html)
+        self.assertIn('role="img" aria-label="1 validated, 0 failed, 1,229 missing of 1230 games"', html)
+        with self.client.get('/static/style.css') as response:
+            self.assertEqual(response.status_code, 200)
+            css = response.get_data(as_text=True)
+        for rule in (':focus-visible {', 'outline: 2px solid var(--orange)',
+                     'table-layout: fixed', 'overflow-x: auto',
+                     'min-width: 640px', 'white-space: nowrap',
+                     'grid-template-columns: minmax(0, 1fr)', 'flex-wrap: wrap'):
+            self.assertIn(rule, css)
+
+    def test_audit_card_keeps_named_region_progress_and_disclosures(self):
+        self.audit_status(missing=self.FIXTURE_IDS[1:])
+        html = self.page()
+        self.assertIn('<section class="audit" aria-labelledby="audit-title">', html)
+        self.assertIn('<h2 id="audit-title">Possession cache audit</h2>', html)
+        summary = html.split('<div class="audit-summary">', 1)[1].split('</div>\n', 2)
+        self.assertIn('regular-season games validated (0.1%)', summary[0])
+        self.assertIn('role="img" aria-label="1 validated, 0 failed, 1,229 missing', summary[0])
+        self.assertIn('Not cached 1,229', summary[1])
+        self.assertIn('<summary>Games not cached yet (1,229)</summary>', html)
+        self.assertNotIn('<details open', html)
+        self.assert_possession_hidden(html)
 
     def test_clean_partial_audit_reports_no_failures_or_corrections(self):
         self.audit_status(missing=self.FIXTURE_IDS[1:])
         html = self.page()
         self.assertIn("No cached game failed validation.", html)
         self.assertIn("No corrections recorded.", html)
+        self.assertIn('<span class="badge badge-ok">None</span>', html)
+        self.assertIn('<span class="badge badge-warn">1,229 waiting on raw play-by-play</span>', html)
         self.assertNotIn('class="bar failed"', html)
         self.assertNotIn("cached games failed validation", html)
 

@@ -116,25 +116,38 @@
         {% if audit %}
         {% set c = audit.counts %}
         {% macro game(g) %}{{ g.game_id }}{% if g.matchup %} ({{ g.matchup }}{% if g.date %}, {{ g.date }}{% endif %}){% endif %}{% endmacro %}
-        <section class="audit">
-            <h2>Possession cache audit</h2>
-            <p class="progress-label"><strong>{{ n(c.validated) }} of {{ "{:,}".format(audit.expected) }}</strong> regular-season games validated ({{ "%.1f"|format(audit.progress.validated) }}%).</p>
-            <div class="progress" role="img" aria-label="{{ n(c.validated) }} validated, {{ n(c.failed) }} failed, {{ n(c.missing) }} missing of {{ audit.expected }} games">
-                {% for kind in ("validated", "failed") if audit.progress[kind] %}<span class="bar {{ kind }}" style="width: {{ audit.progress[kind] }}%"></span>{% endfor %}
+        <section class="audit" aria-labelledby="audit-title">
+            <div class="audit-summary">
+                <h2 id="audit-title">Possession cache audit</h2>
+                <p class="progress-label"><strong>{{ n(c.validated) }} of {{ "{:,}".format(audit.expected) }}</strong> regular-season games validated ({{ "%.1f"|format(audit.progress.validated) }}%).</p>
+                <div class="progress" role="img" aria-label="{{ n(c.validated) }} validated, {{ n(c.failed) }} failed, {{ n(c.missing) }} missing of {{ audit.expected }} games">
+                    {% for kind in ("validated", "failed") if audit.progress[kind] %}<span class="bar {{ kind }}" style="width: {{ audit.progress[kind] }}%"></span>{% endfor %}
+                </div>
+                <p class="legend small"><span class="key validated"></span>Validated {{ n(c.validated) }} <span class="key failed"></span>Failed {{ n(c.failed) }} <span class="key missing"></span>Not cached {{ n(c.missing) }}</p>
             </div>
-            <p class="legend small"><span class="key validated"></span>Validated {{ n(c.validated) }} <span class="key failed"></span>Failed {{ n(c.failed) }} <span class="key missing"></span>Not cached {{ n(c.missing) }}</p>
 
             {% if audit.ready %}
-            <p><strong>All {{ "{:,}".format(audit.expected) }} games validated.</strong> Every game's model inputs match the audit and the season passes the model's gate, so possession-level estimates can be shown when saved outputs match this cache.</p>
+            <details>
+                <summary>All {{ "{:,}".format(audit.expected) }} games validated.</summary>
+                <p>Every game's model inputs match the audit and the season passes the model's gate, so possession-level estimates can be shown when saved outputs match this cache.</p>
+            </details>
             {% else %}
             <div class="notice">
                 <h3>Why player estimates are unavailable</h3>
                 {% if audit.raw_complete %}
-                <p>All {{ "{:,}".format(audit.expected) }} games validated, but player estimates are unavailable until every game's model inputs match the audited cache. Estimates built from files that changed after the audit could not be traced back to the checked data, so the model refuses to fit and this page shows no estimates.</p>
+                <p>All {{ "{:,}".format(audit.expected) }} games validated, but player estimates are unavailable until every game's model inputs match the audited cache.</p>
                 {% else %}
-                <p>Player estimates are unavailable until all {{ "{:,}".format(audit.expected) }} regular-season games validate. Estimates from a partial season would reflect only whichever games happen to be cached, not the whole season, so the model refuses to fit and this page shows no estimates until every game passes.</p>
+                <p>Player estimates are unavailable until all {{ "{:,}".format(audit.expected) }} regular-season games validate.</p>
                 {% endif %}
                 <ul>{% for reason in audit.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+                <details>
+                    <summary>Why estimates stay hidden</summary>
+                    {% if audit.raw_complete %}
+                    <p>Estimates built from files that changed after the audit could not be traced back to the checked data, so the model refuses to fit and this page shows no estimates.</p>
+                    {% else %}
+                    <p>Estimates from a partial season would reflect only whichever games happen to be cached, not the whole season, so the model refuses to fit and this page shows no estimates until every game passes.</p>
+                    {% endif %}
+                </details>
             </div>
             {% endif %}
 
@@ -154,36 +167,55 @@
 
             {% set inputs = audit.inputs %}
             {% set ic = inputs.counts %}
-            <h3>Model inputs</h3>
-            <p>The model reads each game's normalized possession file, built from the raw play-by-play. The audit records a fingerprint of both files for every game it verifies.
+            {% set input_issues = (ic.stale + ic.missing + ic.unverifiable) if inputs.checked else 0 %}
+            <div class="audit-card">
+            <div class="audit-card-head">
+                <h3 id="model-inputs-title">Model inputs</h3>
+                {% if not inputs.checked %}<span class="badge badge-muted">Not checked</span>
+                {% elif input_issues %}<span class="badge badge-warn">{{ "{:,}".format(input_issues) }} need attention</span>
+                {% elif inputs.fresh %}<span class="badge badge-ok">All fresh</span>
+                {% else %}<span class="badge badge-warn">{{ "{:,}".format(ic.fresh) }} fresh · {{ "{:,}".format(ic.missing_raw) }} waiting</span>{% endif %}
+            </div>
+            <details>
+                <summary>How input freshness is checked</summary>
+                <p>The model reads each game's normalized possession file, built from the raw play-by-play. The audit records a fingerprint of both files for every game it verifies.
                 An input is <strong>fresh</strong> when today's files still match those fingerprints exactly. Any change after the audit, even reformatting, makes it <strong>stale</strong> until the audit is rerun.</p>
+            </details>
             {% if not inputs.checked %}
             <p class="small">This report has no game list, so model inputs could not be checked.</p>
             {% else %}
-            <table class="facts inputs">
-                <tr><th>Fresh (match the audit)</th><td>{{ "{:,}".format(ic.fresh) }} of {{ "{:,}".format(audit.expected) }}</td></tr>
-                <tr><th>Stale (changed since the audit)</th><td>{{ "{:,}".format(ic.stale) }}</td></tr>
-                <tr><th>Missing normalized file</th><td>{{ "{:,}".format(ic.missing) }}</td></tr>
-                <tr><th>Could not be verified</th><td>{{ "{:,}".format(ic.unverifiable) }}</td></tr>
-                <tr><th>Waiting on raw play-by-play</th><td>{{ "{:,}".format(ic.missing_raw) }}</td></tr>
+            <table class="facts inputs" aria-labelledby="model-inputs-title">
+                <tr class="input-fresh"><th scope="row">Fresh (match the audit)</th><td>{{ "{:,}".format(ic.fresh) }} of {{ "{:,}".format(audit.expected) }}</td></tr>
+                <tr class="input-stale"><th scope="row">Stale (changed since the audit)</th><td>{{ "{:,}".format(ic.stale) }}</td></tr>
+                <tr class="input-missing"><th scope="row">Missing normalized file</th><td>{{ "{:,}".format(ic.missing) }}</td></tr>
+                <tr class="input-unverifiable"><th scope="row">Could not be verified</th><td>{{ "{:,}".format(ic.unverifiable) }}</td></tr>
+                <tr class="input-waiting"><th scope="row">Waiting on raw play-by-play</th><td>{{ "{:,}".format(ic.missing_raw) }}</td></tr>
             </table>
             {% if inputs.fresh %}
             <p class="small">All model inputs match the audited cache.</p>
             {% elif inputs.problems %}
-            <p>{% if ic.stale %}<strong>Stale</strong> inputs changed after the audit; rerun <code>python possessions_loader.py --offline</code> to re-check them (and refresh the normalized file first if the change was unintended). {% endif %}
-               {% if ic.missing %}<strong>Missing</strong> inputs have validated raw data but no normalized file for the model to read. {% endif %}
-               {% if ic.unverifiable %}<strong>Unverifiable</strong> inputs could not be checked against the audit, so they are not trusted. {% endif %}</p>
-            <ul class="input-problems">
-            {% for p in inputs.problems %}{% if loop.index <= 50 %}
-                <li><span class="tag {{ p.category }}-tag">{{ p.category }}</span> <strong>{{ game(p) }}</strong>: {{ p.reason }}</li>
-            {% endif %}{% endfor %}
-            </ul>
-            {% if inputs.problems|length > 50 %}<p class="small">…and {{ "{:,}".format(inputs.problems|length - 50) }} more games with input problems.</p>{% endif %}
+            <details>
+                <summary>Games with input problems ({{ "{:,}".format(inputs.problems|length) }})</summary>
+                <p>{% if ic.stale %}<strong>Stale</strong> inputs changed after the audit; rerun <code>python possessions_loader.py --offline</code> to re-check them (and refresh the normalized file first if the change was unintended). {% endif %}
+                   {% if ic.missing %}<strong>Missing</strong> inputs have validated raw data but no normalized file for the model to read. {% endif %}
+                   {% if ic.unverifiable %}<strong>Unverifiable</strong> inputs could not be checked against the audit, so they are not trusted. {% endif %}</p>
+                <ul class="input-problems">
+                {% for p in inputs.problems %}{% if loop.index <= 50 %}
+                    <li><span class="tag {{ p.category }}-tag">{{ p.category }}</span> <strong>{{ game(p) }}</strong>: {{ p.reason }}</li>
+                {% endif %}{% endfor %}
+                </ul>
+                {% if inputs.problems|length > 50 %}<p class="small">…and {{ "{:,}".format(inputs.problems|length - 50) }} more games with input problems.</p>{% endif %}
+            </details>
             {% endif %}
             {% if ic.missing_raw %}<p class="small">Games waiting on raw play-by-play are listed under "Games not cached yet"; their inputs are checked once they are cached and audited.</p>{% endif %}
             {% endif %}
+            </div>
 
-            <h3>Validation failures</h3>
+            <div class="audit-card">
+            <div class="audit-card-head">
+                <h3>Validation failures</h3>
+                {% if audit.failures %}<span class="badge badge-bad">{{ "{:,}".format(audit.failures|length) }} failed</span>{% else %}<span class="badge badge-ok">None</span>{% endif %}
+            </div>
             {% if audit.failures %}
             <p>These cached games failed parsing or validation and are not counted as validated. Each must be fixed (or given a verified correction) and the audit rerun.</p>
             <ul class="failures">
@@ -192,11 +224,16 @@
             {% else %}
             <p class="small">No cached game failed validation.</p>
             {% endif %}
+            </div>
 
-            <h3>Recorded corrections</h3>
+            <div class="audit-card">
+            <div class="audit-card-head">
+                <h3>Recorded corrections</h3>
+                <span class="badge badge-muted">{{ "{:,}".format(audit.corrections|length) if audit.corrections else "None" }}{{ " recorded" if audit.corrections }}</span>
+            </div>
             {% if audit.corrections %}
             <p>Corrections are applied only where official evidence contradicts the live feed. The raw cached feed is never altered.</p>
-            <ul>
+            <ul class="corrections">
             {% for x in audit.corrections %}
                 <li><strong>{{ game(x) }}</strong>, Q{{ x.period }} {{ x.display_clock }} (action {{ x.action_number }}, {{ x.action_type }} {{ x.sub_type }}):
                     the feed listed player {{ x.expected_feed_player1_id }}; corrected to {{ x.corrected_player_name }} (ID {{ x.corrected_player1_id }}).
@@ -207,7 +244,14 @@
             {% else %}
             <p class="small">No corrections recorded.</p>
             {% endif %}
+            </div>
 
+            {% if audit.missing_ranges or audit.differences or possession_status.flags %}
+            <div class="audit-card">
+            <div class="audit-card-head">
+                <h3>Games waiting and technical details</h3>
+                {% if c.missing %}<span class="badge badge-warn">{{ n(c.missing) }} waiting on raw play-by-play</span>{% endif %}
+            </div>
             {% if audit.missing_ranges %}
             <details>
                 <summary>Games not cached yet ({{ n(c.missing) }})</summary>
@@ -228,6 +272,8 @@
                 </ul>
             </details>
             {% endif %}
+            </div>
+            {% endif %}
         </section>
         {% endif %}
 
@@ -243,7 +289,7 @@
                 </label>
                 <button type="submit">Filter</button>
             </form>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">
             <table class="players possession-players">
                 <thead><tr><th>#</th><th>Player</th><th>Off. poss.</th><th>Def. poss.</th><th>Offense</th><th>Defense</th><th>Net</th></tr></thead>
                 <tbody>
@@ -353,7 +399,7 @@
                 </label>
                 <button type="submit">Filter</button>
             </form>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">
             <table class="players">
                 <thead><tr><th>#</th><th>Player</th><th>Possessions</th><th>Estimate (per 100)</th></tr></thead>
                 <tbody>
