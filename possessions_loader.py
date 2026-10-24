@@ -28,6 +28,11 @@ LINEAGE_SCHEMA_VERSION = 1
 NORMALIZED_SCHEMA_VERSION = 1
 LINEAGE_COMPONENTS = (("possessions", "possessions"), ("game_metadata", "game"),
                       ("parser_version", "pbpstats_version"), ("normalized_schema_version", "schema_version"))
+GAME_LIST_URL = "https://api.pbpstats.com/get-games/nba"
+LIVE_PBP_URL = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/playbyplay/playbyplay_{}.json"
+RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+MAX_ATTEMPTS = 5
+BACKOFF_SECONDS = 1.0  # waits 1, 2, 4, 8 s between attempts: at most 15 s per file
 
 # Individually verified NBA live-feed corrections. Each entry is guarded by the
 # game/action identity and the exact feed value it replaces; never infer a sub.
@@ -226,27 +231,105 @@ def normalize(game_info):
             "applied_corrections": applied_corrections, "possessions": rows}
 
 
-def write_verification(result):
-    """Save an auditable first-game check for the dashboard."""
-    if result["game"]["GameId"] != "0022400061":
-        return
-    save(
-        ROOT / "verification.json",
-        {
-            "game_id": result["game"]["GameId"],
-            "pbpstats_version": result["pbpstats_version"],
-            "segments": len(result["possessions"]),
-            "counted_possessions_by_team": result["counted_possessions_by_team"],
-            "scoring_events_by_team": result["score_by_team"],
-            "expected_score": {
-                str(result["game"][f"{side}TeamId"]): result["game"][f"{side}Points"]
-                for side in ("Home", "Away")
-            },
-            "score_check_passed": True,
-            "lineup_check_passed": True,
-            "applied_corrections": result["applied_corrections"],
-        },
-    )
+def listed_game_ids(games):
+    """Sorted IDs of a complete 2024-25 regular-season game list, or ValueError."""
+    ids = [g["GameId"] for g in games]
+    if (len(ids) != 1230 or len(set(ids)) != 1230
+            or any(not isinstance(i, str) or len(i) != 10
+                   or not i.startswith("00224") or not i.isdigit() for i in ids)):
+        raise ValueError("expected 1,230 distinct 2024-25 regular-season games")
+    return sorted(ids)
+
+
+class DownloadError(Exception):
+    """A download failure whose message is a stable reason code (no timestamps or paths)."""
+
+
+def fetch_json(url, **kwargs):
+    """GET JSON, retrying only transient failures with bounded exponential backoff."""
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = requests.get(url, timeout=30, **kwargs)
+        except requests.Timeout:
+            reason = "timeout"
+        except requests.ConnectionError:
+            reason = "connection_error"
+        else:
+            if response.status_code in RETRY_STATUS_CODES:
+                reason = f"http_{response.status_code}"
+            elif response.status_code != 200:
+                raise DownloadError(f"http_{response.status_code}")
+            else:
+                try:
+                    return response.json()
+                except ValueError:
+                    raise DownloadError("invalid_json") from None
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(BACKOFF_SECONDS * 2 ** (attempt - 1))
+    raise DownloadError(f"{reason}_after_{MAX_ATTEMPTS}_attempts")
+
+
+def live_pbp_problem(game_id, data):
+    """Reason a downloaded feed is not a whole game's play-by-play, else None.
+
+    A structural gate before saving only; normalize() still runs every check
+    when --rebuild-all/--offline later read the file.
+    """
+    game = data.get("game") if isinstance(data, dict) else None
+    if not isinstance(game, dict) or game.get("gameId") != game_id:
+        return "wrong_or_missing_game_id"
+    actions = game.get("actions")
+    if not isinstance(actions, list) or not actions:
+        return "missing_actions"
+    periods = [a.get("period") if isinstance(a, dict) else None for a in actions]
+    if any(type(p) is not int for p in periods) or max(periods) < 4:
+        return "incomplete_game"
+    return None
+
+
+def download_missing_games():
+    """Download every listed game's missing raw play-by-play; nothing else.
+
+    Cached raw files are skipped, never re-downloaded or replaced. A feed is saved
+    (atomically) only after it parses and passes live_pbp_problem(). One game's
+    failure is recorded and the rest continue. Never normalizes, audits, or runs
+    the model: status.json and normalized files are not touched. Writes only raw
+    files, games.json if absent, and download_report.json.
+    """
+    path = ROOT / "games.json"
+    if not path.exists():
+        listed = fetch_json(GAME_LIST_URL, params={"Season": SEASON, "SeasonType": "Regular Season"},
+                            headers={"User-Agent": "rotation-index/0.1"})
+        listed_game_ids(listed["results"])  # validate before caching
+        save(path, listed)
+    ids = listed_game_ids(json.loads(path.read_text())["results"])
+    report = {"season": SEASON, "games_listed": len(ids), "already_cached": 0,
+              "downloaded_game_ids": [], "failed_game_ids": [], "failures": {}}
+    for game_id in ids:
+        target = RAW / "pbp" / f"live_{game_id}.json"
+        if target.exists():
+            report["already_cached"] += 1
+            continue
+        try:
+            data = fetch_json(LIVE_PBP_URL.format(game_id))
+            problem = live_pbp_problem(game_id, data)
+            if problem:
+                raise DownloadError(problem)
+            save(target, data)
+        except DownloadError as error:
+            reason = str(error)
+        except requests.RequestException as error:
+            reason = f"request_error_{type(error).__name__}"
+        except OSError as error:
+            reason = f"write_error_{type(error).__name__}"
+        else:
+            report["downloaded_game_ids"].append(game_id)
+            time.sleep(0.15)
+            continue
+        report["failed_game_ids"].append(game_id)
+        report["failures"][game_id] = reason
+    save(ROOT / "download_report.json", report, pretty=True)
+    return report
 
 
 def _json_fingerprint(value):
@@ -376,12 +459,7 @@ def audit_cached_season(*, write_status=True):
         if not path.is_file():
             raise FileNotFoundError("--offline: missing cached game list games.json")
         games = json.loads(path.read_text())["results"]
-        ids = [g["GameId"] for g in games]
-        if (len(ids) != 1230 or len(set(ids)) != 1230
-                or any(not isinstance(i, str) or len(i) != 10
-                       or not i.startswith("00224") or not i.isdigit() for i in ids)):
-            raise ValueError("expected 1,230 distinct 2024-25 regular-season games")
-        status["expected_game_ids"] = sorted(ids)
+        status["expected_game_ids"] = listed_game_ids(games)
     except Exception as error:
         status["error"] = f"{type(error).__name__}: {error}"
         if write_status:
@@ -532,7 +610,7 @@ def rebuild_cached_season(*, dry_run=False):
 
 
 def main(offline=False):
-    """Offline audits all existing caches; online loading remains fail-fast."""
+    """Offline audits all existing caches; online only downloads missing raw files."""
     if offline:
         status = audit_cached_season()
         print(json.dumps({k: status[k] for k in (
@@ -544,59 +622,16 @@ def main(offline=False):
             print(status["error"], flush=True)
             raise SystemExit(1)
         return status
-    for sub in (RAW / "pbp", NORMALIZED):
-        sub.mkdir(parents=True, exist_ok=True)
-    status = {"season": SEASON, "season_type": "Regular Season", "complete": False,
-              "source": "NBA live play-by-play via pbpstats 1.3.11; pbpstats.com game list",
-              "games_validated": 0, "possession_segments": 0, "counted_possessions": 0,
-              "model_eligible_possessions": 0, "flags": {}, "possession_count_differences": {}}
-    flag_counts = Counter()
-    active_game = None
     try:
-        path = ROOT / "games.json"
-        if not path.exists():
-            r = requests.get("https://api.pbpstats.com/get-games/nba", params={"Season": SEASON, "SeasonType": "Regular Season"}, timeout=30, headers={"User-Agent": "rotation-index/0.1"})
-            r.raise_for_status()
-            save(path, r.json())
-        games = json.loads(path.read_text())["results"]
-        ids = [g["GameId"] for g in games]
-        if len(ids) != 1230 or len(set(ids)) != 1230 or any(not i.startswith("00224") for i in ids):
-            raise ValueError("expected 1,230 distinct 2024-25 regular-season games")
-        status["games_expected"] = len(games)
-        for i, info in enumerate(games, 1):
-            active_game = info["GameId"]
-            target = RAW / "pbp" / f"live_{active_game}.json"
-            if not target.exists():
-                # Explicit timeout, status check, and atomic cache; first source failure stops the run.
-                url = f"https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/playbyplay/playbyplay_{active_game}.json"
-                response = requests.get(url, timeout=30)
-                response.raise_for_status()
-                save(target, response.json())
-                time.sleep(0.15)
-            result = normalize(info)
-            save(NORMALIZED / f"{active_game}.json", result)
-            write_verification(result)
-            rows = result["possessions"]
-            status["games_validated"] += 1
-            status["possession_segments"] += len(rows)
-            status["counted_possessions"] += sum(r["counted_possession"] for r in rows)
-            status["model_eligible_possessions"] += sum(r["model_eligible"] for r in rows)
-            flag_counts.update(f for row in rows for f in row["flags"])
-            status["flags"] = dict(flag_counts)
-            if any(result["possession_count_difference_vs_api"].values()):
-                status["possession_count_differences"][active_game] = result["possession_count_difference_vs_api"]
-            save(ROOT / "status.json", status)
-            if i == 1 or i % 25 == 0:
-                print(f"Validated {i}/{len(games)} games; {status['counted_possessions']} counted possessions", flush=True)
-        status["complete"] = True
-        save(ROOT / "status.json", status)
-        print(json.dumps(status, indent=2), flush=True)
-    except Exception as error:
-        status["failed_game"] = active_game
-        status["error"] = f"{type(error).__name__}: {error}"
-        save(ROOT / "status.json", status)
-        print("STOPPED: " + status["error"], flush=True)
+        report = download_missing_games()
+    except Exception as error:  # game list unavailable or invalid: no game was requested
+        print(f"STOPPED: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
         raise SystemExit(1)
+    print(f"Downloaded {len(report['downloaded_game_ids'])}, already cached {report['already_cached']}, "
+          f"failed {len(report['failed_game_ids'])} of {report['games_listed']} listed games. "
+          "Nothing was normalized or audited: run --rebuild-all, then --offline.", file=sys.stderr, flush=True)
+    print(json.dumps(report, indent=2), flush=True)
+    raise SystemExit(1 if report["failed_game_ids"] else 0)
 
 
 def cli(argv=None):
