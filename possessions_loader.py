@@ -3,6 +3,8 @@
 import json
 import hashlib
 import sys
+import shutil
+import stat
 import time
 from collections import Counter
 from importlib.metadata import version
@@ -287,9 +289,44 @@ def live_pbp_problem(game_id, data):
     return None
 
 
+def storage_preflight():
+    """Read-only estimate: largest cached files per type, with 2x safety headroom."""
+    ids = listed_game_ids(json.loads((ROOT / "games.json").read_text())["results"])
+
+    def sizes(paths):
+        result = []
+        for path in paths:
+            try:
+                info = path.stat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError(f"not a regular cached file: {path}")
+            result.append(info.st_size)
+        return result
+
+    raw = sizes(RAW / "pbp" / f"live_{game_id}.json" for game_id in ids)
+    normalized = sizes(NORMALIZED / f"{game_id}.json" for game_id in ids)
+    missing_raw, missing_normalized = len(ids) - len(raw), len(ids) - len(normalized)
+    raw_max, normalized_max = max(raw, default=0), max(normalized, default=0)
+    known = not ((missing_raw and not raw_max) or (missing_normalized and not normalized_max))
+    estimate = missing_raw * raw_max + missing_normalized * normalized_max if known else None
+    required = 2 * estimate if known else None
+    available = shutil.disk_usage(ROOT).free
+    return {"available_bytes": available, "missing_games": missing_raw,
+            "missing_normalized_games": missing_normalized,
+            "raw_sample_games": sum(size > 0 for size in raw),
+            "normalized_sample_games": sum(size > 0 for size in normalized),
+            "raw_max_bytes": raw_max, "normalized_max_bytes": normalized_max,
+            "estimated_required_bytes": estimate, "safety_required_bytes": required,
+            "passes_safety_margin": known and available >= required,
+            "reason": None if known else "Missing non-empty cached samples for a required file type."}
+
+
 def download_missing_games():
     """Download every listed game's missing raw play-by-play; nothing else.
 
+    Stops before any game request unless storage_preflight() passes.
     Cached raw files are skipped, never re-downloaded or replaced. A feed is saved
     (atomically) only after it parses and passes live_pbp_problem(). One game's
     failure is recorded and the rest continue. Never normalizes, audits, or runs
@@ -303,6 +340,12 @@ def download_missing_games():
         listed_game_ids(listed["results"])  # validate before caching
         save(path, listed)
     ids = listed_game_ids(json.loads(path.read_text())["results"])
+    storage = storage_preflight()
+    if not storage["passes_safety_margin"]:  # fail closed: no game is requested
+        if storage["safety_required_bytes"] is None:
+            raise DownloadError("storage_unknown: " + storage["reason"])
+        raise DownloadError(f"insufficient_storage: {storage['safety_required_bytes']:,} bytes required "
+                            f"with headroom, {storage['available_bytes']:,} available")
     report = {"season": SEASON, "games_listed": len(ids), "already_cached": 0,
               "downloaded_game_ids": [], "failed_game_ids": [], "failures": {}}
     for game_id in ids:
@@ -624,7 +667,7 @@ def main(offline=False):
         return status
     try:
         report = download_missing_games()
-    except Exception as error:  # game list unavailable or invalid: no game was requested
+    except Exception as error:  # game list or storage check failed: no game was requested
         print(f"STOPPED: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
         raise SystemExit(1)
     print(f"Downloaded {len(report['downloaded_game_ids'])}, already cached {report['already_cached']}, "
@@ -642,7 +685,18 @@ def cli(argv=None):
     parser.add_argument("--rebuild", metavar="GAME_ID", help="rebuild one normalized game from its cached raw file; never download")
     parser.add_argument("--rebuild-all", action="store_true", help="rebuild every listed game whose raw file is cached; never download")
     parser.add_argument("--dry-run", action="store_true", help="with --rebuild/--rebuild-all: report what would change and write nothing")
+    parser.add_argument("--storage-preflight", action="store_true",
+                        help="read-only disk-space estimate from local caches; never download or process games")
     args = parser.parse_args(argv)
+    if args.storage_preflight:
+        if args.offline or args.rebuild or args.rebuild_all or args.dry_run:
+            parser.error("--storage-preflight cannot be combined with processing options")
+        try:
+            report = storage_preflight()
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.exit(2, f"Storage preflight failed: {error}\n")
+        print(json.dumps(report, indent=2, sort_keys=True), flush=True)
+        raise SystemExit(0 if report["passes_safety_margin"] else 1)
     if args.dry_run and not (args.rebuild or args.rebuild_all):
         parser.error("--dry-run requires --rebuild GAME_ID or --rebuild-all")
     if args.rebuild and args.rebuild_all:

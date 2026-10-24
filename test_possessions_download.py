@@ -55,6 +55,13 @@ class DownloadMissingGamesTests(unittest.TestCase):
             self.addCleanup(mock.stop)
         self.calls = Counter()
         self.scripts = {}
+        # Storage is estimated from real cache samples in test_storage_preflight; here it passes by default.
+        self.storage = {"passes_safety_margin": True, "safety_required_bytes": 0, "available_bytes": 1,
+                        "reason": None}
+        mock = patch.object(pl, "storage_preflight", side_effect=self.check_storage)
+        self.preflight = mock.start()
+        self.addCleanup(mock.stop)
+        self.game_list = FakeResponse(body={"results": [{"GameId": i} for i in IDS]})
         mock = patch.object(pl.requests, "get", side_effect=self.get)
         mock.start()
         self.addCleanup(mock.stop)
@@ -73,6 +80,31 @@ class DownloadMissingGamesTests(unittest.TestCase):
         if isinstance(outcome, BaseException):
             raise outcome
         return outcome
+
+    def check_storage(self):
+        return self.storage
+
+    # A failing check stopping every request (below) is what proves it runs first.
+    def test_failed_or_unknown_storage_check_downloads_nothing(self):
+        self.write_game_list()
+        for storage, message in (
+            ({"passes_safety_margin": False, "safety_required_bytes": 2_000_000, "available_bytes": 1_000,
+              "reason": None}, "insufficient_storage: 2,000,000 bytes required with headroom, 1,000 available"),
+            ({"passes_safety_margin": False, "safety_required_bytes": None, "available_bytes": 10**12,
+              "reason": "Missing non-empty cached samples for a required file type."},
+             "storage_unknown: Missing non-empty cached samples"),
+        ):
+            with self.subTest(message=message):
+                self.storage = storage
+                stderr = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr), \
+                        self.assertRaises(SystemExit) as exit_:
+                    pl.cli([])
+                self.assertEqual(exit_.exception.code, 1)
+                self.assertIn(f"STOPPED: DownloadError: {message}", stderr.getvalue())
+                self.assertEqual(sum(self.calls.values()), 0)
+                self.assertFalse(self.pbp.exists())
+                self.assertFalse((self.root / "download_report.json").exists())
 
     def write_game_list(self):
         self.root.mkdir(parents=True, exist_ok=True)
