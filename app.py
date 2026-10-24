@@ -336,23 +336,36 @@ def home():
     model = read_json("model.json") if status and possession_status is None else None
     players = None
     min_poss = request.args.get("min_poss", default=1000, type=int)
+    query = request.args.get("q", default="").strip()
     if status and possession_status is None and model and (DATA_DIR / "rapm.csv").exists():
         table = pd.read_csv(DATA_DIR / "rapm.csv")
-        players = table[table.possessions >= min_poss].to_dict("records")
-    possession_model = possession_players = possession_problem = audit = None
+        table = table[table.possessions >= min_poss]
+        if query:
+            table = table[table.name.str.contains(query, case=False, regex=False, na=False)]
+        players = table.to_dict("records")
+    selected_id = request.args.get("player", type=int)
+    possession_model = possession_players = possession_problem = audit = selected_player = None
     diagnostics = diagnostics_problem = None
     failed_checks = []
     if possession_status is not None:
         audit = possession_audit(possession_status if isinstance(possession_status, dict) else {}, verification)
         possession_model, table, possession_problem, failed_checks = possession_outputs(possession_status, audit["ready"])
         if table is not None:
-            on_court = table.offense_possessions + table.defense_possessions
-            possession_players = (table[on_court >= min_poss]
-                                  .sort_values(["net_per_100", "player_id"], ascending=[False, True])
-                                  .to_dict("records"))
             names = cached_player_names(table.player_id)
-            for player in possession_players:
+            everyone = table.sort_values(["net_per_100", "player_id"], ascending=[False, True]).to_dict("records")
+            for player in everyone:
                 player["name"] = names.get(int(player["player_id"]))
+                player["on_court"] = player["offense_possessions"] + player["defense_possessions"]
+            # Rank within the possession filter, so a name search keeps each player's place.
+            possession_players = [p for p in everyone if p["on_court"] >= min_poss]
+            for rank, player in enumerate(possession_players, 1):
+                player["rank"] = rank
+            if query:
+                needle = query.casefold()
+                possession_players = [p for p in possession_players
+                                      if needle in (p["name"] or "").casefold() or query == str(p["player_id"])]
+            # The selected player shows from the whole gated table, even below the filter.
+            selected_player = next((p for p in everyone if p["player_id"] == selected_id), None)
             diagnostics, diagnostics_problem = possession_diagnostics(possession_model, possession_status)
     return render_template(
         "index.html",
@@ -363,6 +376,9 @@ def home():
         players=players,
         possession_model=possession_model,
         possession_players=possession_players,
+        selected_player=selected_player,
+        selected_id=selected_id,
+        query=query,
         possession_problem=possession_problem,
         failed_checks=failed_checks,
         diagnostics=diagnostics,

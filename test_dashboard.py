@@ -1,6 +1,7 @@
 """Offline Flask display checks. Run: python -m unittest test_dashboard."""
 
 import json
+import re
 from html.parser import HTMLParser
 import shutil
 import tempfile
@@ -134,9 +135,48 @@ class DashboardDisplayTests(unittest.TestCase):
         self.legacy_files()
         html = self.page()
         self.assertIn('<div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">', html)
+        self.assertNotIn("<th>", html)
         self.assertIn("Lineup-total player estimates", html)
         self.assertIn("Legacy Fixture Player", html)
         self.assertNotIn('class="overview"', html)
+
+    def test_legacy_filter_excluding_every_player_shows_empty_state(self):
+        self.legacy_files()
+        threshold = 2001
+        response = self.client.get(f"/?min_poss={threshold}")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn(
+            f"No players have at least {threshold:,} possessions on court. Lower the minimum to see more.",
+            html,
+        )
+        self.assertNotIn('<table class="players">', html)
+        self.assertIn('<form method="get" action="#lineup-estimates" role="search">', html)
+
+    def test_legacy_name_search_preserves_threshold_and_handles_empty_results(self):
+        self.legacy_files()
+        for query in ("legacy", "  fIXTURE  ", "", "  "):
+            with self.subTest(query=query):
+                response = self.client.get("/", query_string={"q": query, "min_poss": 2000})
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn("Legacy Fixture Player", html)
+                self.assertIn(f'name="q" value="{query.strip()}"', html)
+                self.assertIn('name="min_poss" value="2000"', html)
+
+        for query, threshold in (("nobody", 0), (".*", 0), ("<script>", 0), ("legacy", 2001)):
+            with self.subTest(query=query, threshold=threshold):
+                response = self.client.get("/", query_string={"q": query, "min_poss": threshold})
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn(
+                    f"No players matching “{escape(query)}” have at least {threshold:,} possessions on court.",
+                    html,
+                )
+                self.assertNotIn("Legacy Fixture Player", html)
+                self.assertNotIn('<table class="players">', html)
+                self.assertIn(f'name="min_poss" value="{threshold}"', html)
+                self.assertIn(f'name="q" value="{escape(query)}"', html)
 
     def test_missing_model_metadata_hides_estimates(self):
         self.legacy_files()
@@ -246,11 +286,12 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assert_hidden(html)
         self.assertIn("Possession-level player estimates", html)
         self.assertIn('<div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">', html)
+        self.assertNotIn("<th>", html)
         self.assertIn("Possession model details", html)
         self.assertNotIn("Possession cache incomplete", html)
         self.assertIn('<dd class="overview-value">Available</dd>', html)
         for heading in ("Off. poss.", "Def. poss.", "Offense", "Defense", "Net"):
-            self.assertIn(f"<th>{heading}</th>", html)
+            self.assertIn(f'<th scope="col">{heading}</th>', html)
         self.assertIn("Defense is points prevented", html)
         metadata = json.loads((self.data / "possession_model.json").read_text())
         self.assertIn(f"<td>{metadata['selected_penalty']}</td>", html)
@@ -263,7 +304,7 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertNotIn(self.UNAVAILABLE, html)
         # Rows appear in net order with their own counts and signed values.
         best = table.sort_values(["net_per_100", "player_id"], ascending=[False, True]).to_dict("records")[0]
-        row = (f"<td>1</td>\n                        <td>Player ID {best['player_id']}</td>\n"
+        row = (f"<td>1</td>\n                        <td><a href=\"/?min_poss=0&amp;player={best['player_id']}#player-estimates\">Player ID {best['player_id']}</a></td>\n"
                f"                        <td>{best['offense_possessions']:,}</td>\n"
                f"                        <td>{best['defense_possessions']:,}</td>")
         self.assertIn(row, html)
@@ -354,7 +395,7 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertIn(f'<tr class="input-{category}"><th scope="row">{labels[category]}</th><td>1</td></tr>', html)
         self.assertIn("<tr class=\"input-fresh\"><th scope=\"row\">Fresh (match the audit)</th><td>1,229 of 1,230</td></tr>", html)
         # Cache counts and audit details are preserved; saved outputs are untouched.
-        self.assertIn("<tr><th>Validated</th><td>1,230</td></tr>", html)
+        self.assertIn("<tr><th scope=\"row\">Validated</th><td>1,230</td></tr>", html)
         self.assertEqual({n: (self.data / n).read_bytes() for n in saved_outputs}, saved_outputs)
 
     def test_unverified_audit_lineage_hides_estimates(self):
@@ -499,7 +540,7 @@ class DashboardDisplayTests(unittest.TestCase):
                             solver.assert_not_called()
                         self.assertFalse((self.data / "new_outputs").exists())
                     self.assert_hidden(html)
-                    self.assertIn("<tr><th>Validated</th><td>1,230</td></tr>", html)
+                    self.assertIn("<tr><th scope=\"row\">Validated</th><td>1,230</td></tr>", html)
                     self.assertIn("changing or missing lineup: 70", html)
                     self.assertEqual({name: (self.data / name).read_bytes() for name in outputs}, outputs)
                 finally:
@@ -586,6 +627,12 @@ class DashboardDisplayTests(unittest.TestCase):
         threshold = int(on_court.median()) + 1
         html = self.client.get(f"/?min_poss={threshold}").get_data(as_text=True)
         self.assertEqual(html.count("<tr>\n                        <td>"), int((on_court >= threshold).sum()))
+        self.assertNotIn("No players have at least", html)
+        # A threshold above every player explains the empty table instead of showing bare headers.
+        html = self.client.get(f"/?min_poss={on_court.max() + 1}").get_data(as_text=True)
+        self.assertEqual(html.count("<tr>\n                        <td>"), 0)
+        self.assertIn(f"<p>No players have at least {on_court.max() + 1:,} on-court possessions.", html)
+        self.assertNotIn('class="players possession-players"', html)
 
     def test_incomplete_cache_hides_existing_possession_outputs(self):
         self.legacy_files()
@@ -640,7 +687,7 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertIn("<strong>14 of 1,230</strong> regular-season games validated (1.1%)", html)
         for label, value in (("Cached (play-by-play on disk)", "15"), ("Validated", "14"),
                              ("Failed validation", "1"), ("Not cached yet", "1,215")):
-            self.assertIn(f"<tr><th>{label}</th><td>{value}</td></tr>", html)
+            self.assertIn(f'<tr><th scope="row">{label}</th><td>{value}</td></tr>', html)
         self.assertIn(self.UNAVAILABLE, html)
         self.assertIn("1,215 games have no cached play-by-play yet.", html)
         self.assertIn("1 cached game failed validation", html)
@@ -756,12 +803,16 @@ class DashboardDisplayTests(unittest.TestCase):
         lineup = {"EntityId": "-".join(str(i) for i in ids[:5]),
                   "Name": ", ".join(f"Lineup Name {i}" for i in ids[:5])}
         broken = {"EntityId": "-".join(str(i) for i in ids[5:10]), "Name": "Too, Few"}
-        self.write_json("raw/lineups/0000000001.json",
+        self.write_json(f"raw/lineups/{self.FIXTURE_IDS[0]}.json",
                         {"stats": {"Home": {"FullGame": [lineup, broken]}, "Away": {"FullGame": []}}})
-        (self.data / "raw/lineups/0000000002.json").write_text("{not json")
-        self.write_json("cache/possessions/pbpstats/pbp/live_0000000001.json", {"game": {"actions": [
+        (self.data / f"raw/lineups/{self.FIXTURE_IDS[1]}.json").write_text("{not json")
+        self.write_json(f"cache/possessions/pbpstats/pbp/live_{self.FIXTURE_IDS[0]}.json", {"game": {"gameId": self.FIXTURE_IDS[0], "actions": [
             {"personId": i, "playerNameI": f"L. Live{i}"} for i in ids[3:7]
         ] + [{"personId": 0, "playerNameI": ""}]}})
+        status_path = self.data / "cache/possessions/status.json"
+        status = json.loads(status_path.read_text())
+        attach_lineage_fixture(status, status_path.parent)
+        status_path.write_text(json.dumps(status))
 
     def player_cell(self, html, player_id, text):
         return f'<span title="NBA player ID {player_id}">{text}</span>' in html
@@ -777,8 +828,110 @@ class DashboardDisplayTests(unittest.TestCase):
         for i in ids[5:7]:
             self.assertTrue(self.player_cell(html, i, f"L. Live{i}"), i)
         for i in ids[7:]:
-            self.assertIn(f"<td>Player ID {i}</td>", html)
+            self.assertIn(f'<a href="/?min_poss=0&amp;player={i}#player-estimates">Player ID {i}</a></td>', html)
         self.assertNotIn("Too", html)
+
+    def table_rows(self, html):
+        """(rank, player ID) for each row of the possession table."""
+        if 'class="players possession-players"' not in html:
+            return []
+        body = html.split('class="players possession-players"', 1)[1].split("</tbody>", 1)[0]
+        return [(int(rank), int(pid)) for rank, pid in
+                re.findall(r"<td>(\d+)</td>\s*<td><a href=\"[^\"]*player=(\d+)#player-estimates\"", body)]
+
+    def test_name_search_filters_table_and_keeps_rank_and_min_possessions(self):
+        self.complete_possession_outputs()
+        table = pd.read_csv(self.data / "possession_players.csv")
+        table["on_court"] = table.offense_possessions + table.defense_possessions
+        ranked = table.sort_values(["net_per_100", "player_id"], ascending=[False, True]).player_id.tolist()
+        self.write_name_caches(sorted(table.player_id))
+        named = sorted(table.player_id)[:5]  # "Lineup Name <id>" from the fixture lineup cache
+
+        rows = self.table_rows(self.client.get("/?min_poss=0&q=lineup+NAME").get_data(as_text=True))
+        self.assertEqual(rows, [(ranked.index(i) + 1, i) for i in ranked if i in named])
+
+        target = named[0]
+        rows = self.table_rows(self.client.get(f"/?min_poss=0&q={target}").get_data(as_text=True))
+        self.assertEqual(rows, [(ranked.index(target) + 1, target)])
+
+        # The possession minimum still applies, and rank is within that filtered set.
+        threshold = int(table.on_court.median()) + 1
+        kept = [i for i in ranked if table.set_index("player_id").on_court[i] >= threshold]
+        rows = self.table_rows(self.client.get(f"/?min_poss={threshold}&q=lineup").get_data(as_text=True))
+        self.assertEqual(rows, [(kept.index(i) + 1, i) for i in kept if i in named])
+        self.assertIn(f'name="min_poss" value="{threshold}"', self.client.get(f"/?min_poss={threshold}&q=x").get_data(as_text=True))
+
+        html = self.client.get("/?min_poss=0&q=nobody+here").get_data(as_text=True)
+        self.assertEqual(self.table_rows(html), [])
+        self.assertIn("No players matching “nobody here” have at least 0 on-court possessions.", html)
+        self.assertIn('name="q" value="nobody here"', html)
+        # No bare header row or empty scroll region; filters return to this section.
+        self.assertNotIn('class="players possession-players"', html)
+        self.assertIn('<section id="player-estimates">', html)
+        self.assertIn('<form method="get" action="#player-estimates" role="search">', html)
+
+    def test_selected_player_shows_saved_values(self):
+        self.complete_possession_outputs()
+        table = pd.read_csv(self.data / "possession_players.csv")
+        self.write_name_caches(sorted(table.player_id))
+        p = table.sort_values("player_id").iloc[0]
+        pid, on_court = int(p.player_id), int(p.offense_possessions + p.defense_possessions)
+
+        html = self.client.get(f"/?min_poss=0&q=lineup&player={pid}").get_data(as_text=True)
+        detail = html.split('class="player-detail"', 1)[1].split("</div>", 1)[0]
+        self.assertIn(f">Lineup Name {pid}</h3>", detail)
+        self.assertIn(f"NBA player ID {pid} · {on_court:,} on-court possessions", detail)
+        for label, value in (("Offense", f"{p.offense_per_100:+.2f}"), ("Defense", f"{p.defense_per_100:+.2f}"),
+                             ("Net", f"{p.net_per_100:+.2f}"),
+                             ("Offensive possessions", f"{int(p.offense_possessions):,}"),
+                             ("Defensive possessions", f"{int(p.defense_possessions):,}")):
+            self.assertRegex(detail, rf'<th scope="row">{label}</th><td[^>]*>{re.escape(value)}</td>')
+        self.assertNotIn("Below the current minimum", detail)
+        self.assertIn(f'<input type="hidden" name="player" value="{pid}">', html)
+        self.assertIn('href="/?min_poss=0&amp;q=lineup#player-estimates">Clear selection', detail)
+        self.assertIn('class="player-detail" role="region" aria-labelledby="selected-player-title"', html)
+
+        # Still shown when the possession filter hides the player from the table.
+        html = self.client.get(f"/?min_poss={on_court + 1}&player={pid}").get_data(as_text=True)
+        self.assertIn(f"NBA player ID {pid} · {on_court:,} on-court possessions", html)
+        self.assertIn("so this player is not in the table", html)
+        self.assertNotIn((pid,), [(r[1],) for r in self.table_rows(html)])
+
+    def test_unknown_or_unselected_player_shows_no_summary(self):
+        self.complete_possession_outputs()
+        for selection in ("1", "abc", None):
+            with self.subTest(selection=selection):
+                args = {"min_poss": 0}
+                if selection is not None:
+                    args["player"] = selection
+                response = self.client.get("/", query_string=args)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertIn("Possession-level player estimates", html)
+                self.assertNotIn('class="player-detail"', html)
+                self.assertNotIn('id="selected-player-title"', html)
+                self.assertNotIn('type="hidden" name="player"', html)
+                if selection == "1":
+                    self.assertIn("No player with NBA player ID 1 has saved estimates.", html)
+                else:
+                    self.assertNotIn("No player with NBA player ID", html)
+
+    def test_search_and_selection_show_nothing_unless_estimates_are_ready(self):
+        self.legacy_files()
+        self.complete_possession_outputs(complete=False)
+        table = pd.read_csv(self.data / "possession_players.csv")
+        self.write_name_caches(sorted(table.player_id))
+        pid = int(table.player_id.iloc[0])
+        with patch.object(dashboard, "cached_player_names") as names:
+            response = self.client.get(f"/?min_poss=0&q=lineup&player={pid}")
+            names.assert_not_called()
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assert_possession_hidden(html)
+        self.assert_hidden(html)
+        for text in ('class="player-detail"', "No player with NBA player ID", 'name="q"', "Lineup Name",
+                     f"{table.net_per_100.iloc[0]:+.2f}"):
+            self.assertNotIn(text, html)
 
     def test_incomplete_cache_hides_names_with_estimates(self):
         self.complete_possession_outputs(complete=False)

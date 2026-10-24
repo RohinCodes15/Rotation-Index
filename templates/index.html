@@ -83,14 +83,14 @@
         <section>
             <h2>Data status</h2>
             <table class="facts">
-                <tr><th>Source</th><td>{{ status.source }}</td></tr>
-                <tr><th>Loaded</th><td>{{ status.loaded_at }}</td></tr>
-                <tr><th>Games used</th><td>{{ status.games_used }} of {{ status.games_in_season }}</td></tr>
-                <tr><th>Failed downloads</th><td>{{ status.failed_downloads|length }}</td></tr>
-                <tr><th>Games failing checks (excluded)</th><td>{{ status.games_failing_checks|length }}</td></tr>
-                <tr><th>Zero-possession lineups dropped</th><td>{{ status.zero_possession_lineups_dropped }}</td></tr>
-                <tr><th>Lineup-game rows</th><td>{{ "{:,}".format(status.lineup_rows) }}</td></tr>
-                <tr><th>Offensive possessions</th><td>{{ "{:,}".format(status.offensive_possessions) }}</td></tr>
+                <tr><th scope="row">Source</th><td>{{ status.source }}</td></tr>
+                <tr><th scope="row">Loaded</th><td>{{ status.loaded_at }}</td></tr>
+                <tr><th scope="row">Games used</th><td>{{ status.games_used }} of {{ status.games_in_season }}</td></tr>
+                <tr><th scope="row">Failed downloads</th><td>{{ status.failed_downloads|length }}</td></tr>
+                <tr><th scope="row">Games failing checks (excluded)</th><td>{{ status.games_failing_checks|length }}</td></tr>
+                <tr><th scope="row">Zero-possession lineups dropped</th><td>{{ status.zero_possession_lineups_dropped }}</td></tr>
+                <tr><th scope="row">Lineup-game rows</th><td>{{ "{:,}".format(status.lineup_rows) }}</td></tr>
+                <tr><th scope="row">Offensive possessions</th><td>{{ "{:,}".format(status.offensive_possessions) }}</td></tr>
             </table>
             {% if status.games_failing_checks %}
             <details>
@@ -152,16 +152,16 @@
             {% endif %}
 
             <table class="facts">
-                <tr><th>Games expected</th><td>{{ "{:,}".format(audit.expected) }}</td></tr>
-                <tr><th>Cached (play-by-play on disk)</th><td>{{ n(c.cached) }}</td></tr>
-                <tr><th>Validated</th><td>{{ n(c.validated) }}</td></tr>
-                <tr><th>Failed validation</th><td>{{ n(c.failed) }}</td></tr>
-                <tr><th>Not cached yet</th><td>{{ n(c.missing) }}</td></tr>
-                <tr><th>Possession segments</th><td>{{ n(possession_status.possession_segments) }}</td></tr>
-                <tr><th>Counted possessions</th><td>{{ n(possession_status.counted_possessions) }}</td></tr>
-                <tr><th>Model-eligible possessions</th><td>{{ n(possession_status.model_eligible_possessions) }}</td></tr>
-                <tr><th>Source</th><td>{{ possession_status.source or "not recorded" }}</td></tr>
-                <tr><th>Report type</th><td>{{ "Offline audit (local files only)" if audit.mode == "offline_audit" else "Loader progress report, not an offline audit" }}</td></tr>
+                <tr><th scope="row">Games expected</th><td>{{ "{:,}".format(audit.expected) }}</td></tr>
+                <tr><th scope="row">Cached (play-by-play on disk)</th><td>{{ n(c.cached) }}</td></tr>
+                <tr><th scope="row">Validated</th><td>{{ n(c.validated) }}</td></tr>
+                <tr><th scope="row">Failed validation</th><td>{{ n(c.failed) }}</td></tr>
+                <tr><th scope="row">Not cached yet</th><td>{{ n(c.missing) }}</td></tr>
+                <tr><th scope="row">Possession segments</th><td>{{ n(possession_status.possession_segments) }}</td></tr>
+                <tr><th scope="row">Counted possessions</th><td>{{ n(possession_status.counted_possessions) }}</td></tr>
+                <tr><th scope="row">Model-eligible possessions</th><td>{{ n(possession_status.model_eligible_possessions) }}</td></tr>
+                <tr><th scope="row">Source</th><td>{{ possession_status.source or "not recorded" }}</td></tr>
+                <tr><th scope="row">Report type</th><td>{{ "Offline audit (local files only)" if audit.mode == "offline_audit" else "Loader progress report, not an offline audit" }}</td></tr>
             </table>
             {% if audit.message %}<p class="small">Audit message: {{ audit.message }}</p>{% endif %}
 
@@ -278,25 +278,46 @@
         {% endif %}
 
         {% if possession_model and possession_players is not none %}
-        <section>
+        <section id="player-estimates">
             <h2>Possession-level player estimates</h2>
             <p><strong>Unit:</strong> points per 100 possessions compared with an average player, holding the other nine players on the floor fixed.
                 Offense is points added on offense. Defense is points prevented on defense, so positive is good on both ends. Net = offense + defense.</p>
             <p class="small">Names come from locally cached lineup and play-by-play files; players without a cached name are shown by NBA player ID.</p>
-            <form method="get">
+            <form method="get" action="#player-estimates" role="search">
+                <label>Player name or NBA player ID
+                    <input type="search" name="q" value="{{ query }}">
+                </label>
                 <label>Minimum on-court possessions (offense + defense)
                     <input type="number" name="min_poss" value="{{ min_poss }}" min="0" step="100">
                 </label>
+                {% if selected_player %}<input type="hidden" name="player" value="{{ selected_player.player_id }}">{% endif %}
                 <button type="submit">Filter</button>
             </form>
-            <div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">
+            {% if selected_player %}{% set p = selected_player %}
+            <div class="player-detail" role="region" aria-labelledby="selected-player-title">
+                <h3 id="selected-player-title">{{ p.name or "Player ID " ~ p.player_id }}</h3>
+                <p class="small">NBA player ID {{ p.player_id }} · {{ "{:,}".format(p.on_court) }} on-court possessions</p>
+                <table class="facts">
+                    <tr><th scope="row">Offense</th><td class="{{ 'pos' if p.offense_per_100 > 0 else 'neg' }}">{{ "%+.2f"|format(p.offense_per_100) }}</td></tr>
+                    <tr><th scope="row">Defense</th><td class="{{ 'pos' if p.defense_per_100 > 0 else 'neg' }}">{{ "%+.2f"|format(p.defense_per_100) }}</td></tr>
+                    <tr><th scope="row">Net</th><td class="{{ 'pos' if p.net_per_100 > 0 else 'neg' }}">{{ "%+.2f"|format(p.net_per_100) }}</td></tr>
+                    <tr><th scope="row">Offensive possessions</th><td>{{ "{:,}".format(p.offense_possessions) }}</td></tr>
+                    <tr><th scope="row">Defensive possessions</th><td>{{ "{:,}".format(p.defense_possessions) }}</td></tr>
+                </table>
+                {% if p.on_court < min_poss %}<p class="small">Below the current minimum of {{ "{:,}".format(min_poss) }} on-court possessions, so this player is not in the table.</p>{% endif %}
+                <p class="small"><a href="{{ url_for('home', min_poss=min_poss, q=query or None, _anchor='player-estimates') }}">Clear selection</a></p>
+            </div>
+            {% elif selected_id is not none %}
+            <p>No player with NBA player ID {{ selected_id }} has saved estimates.</p>
+            {% endif %}
+            {% if possession_players %}<div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">
             <table class="players possession-players">
-                <thead><tr><th>#</th><th>Player</th><th>Off. poss.</th><th>Def. poss.</th><th>Offense</th><th>Defense</th><th>Net</th></tr></thead>
+                <thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">Off. poss.</th><th scope="col">Def. poss.</th><th scope="col">Offense</th><th scope="col">Defense</th><th scope="col">Net</th></tr></thead>
                 <tbody>
                 {% for p in possession_players %}
                     <tr>
-                        <td>{{ loop.index }}</td>
-                        <td>{% if p.name %}<span title="NBA player ID {{ p.player_id }}">{{ p.name }}</span>{% else %}Player ID {{ p.player_id }}{% endif %}</td>
+                        <td>{{ p.rank }}</td>
+                        <td><a href="{{ url_for('home', min_poss=min_poss, q=query or None, player=p.player_id, _anchor='player-estimates') }}">{% if p.name %}<span title="NBA player ID {{ p.player_id }}">{{ p.name }}</span>{% else %}Player ID {{ p.player_id }}{% endif %}</a></td>
                         <td>{{ "{:,}".format(p.offense_possessions) }}</td>
                         <td>{{ "{:,}".format(p.defense_possessions) }}</td>
                         {% for value in (p.offense_per_100, p.defense_per_100, p.net_per_100) %}
@@ -306,23 +327,24 @@
                 {% endfor %}
                 </tbody>
             </table>
-            </div>
+            </div>{% endif %}
+            {% if not possession_players %}{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} on-court possessions. Try another name or lower the minimum.</p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} on-court possessions. Lower the minimum to see more.</p>{% endif %}{% endif %}
         </section>
 
         <section>
             <h2>Possession model details</h2>
             {% set m = possession_model %}
             <table class="facts">
-                <tr><th>Season</th><td>{{ m.season }} {{ m.season_type }}</td></tr>
-                <tr><th>Source</th><td>{{ m.source }}</td></tr>
-                <tr><th>Fitted</th><td>{{ m.created_at }}</td></tr>
-                <tr><th>Games used</th><td>{{ "{:,}".format(m.games_used) }} of {{ "{:,}".format(m.games_validated) }} validated</td></tr>
-                <tr><th>Eligible possessions modeled</th><td>{{ "{:,}".format(m.eligible_possessions) }}{% if possession_status.counted_possessions %} of {{ "{:,}".format(possession_status.counted_possessions) }} counted{% endif %}</td></tr>
-                <tr><th>Players fit</th><td>{{ "{:,}".format(m.players) }}</td></tr>
-                <tr><th>Selected ridge penalty</th><td>{{ m.selected_penalty }}</td></tr>
-                <tr><th>Holdout split</th><td>{{ m.training_game_ids|length }} training games, {{ m.holdout_game_ids|length }} holdout games; {{ m.holdout_split }}</td></tr>
-                <tr><th>League average (intercept)</th><td>{{ "%.1f"|format(100 * m.intercept_points_per_possession) }} points per 100 possessions</td></tr>
-                <tr><th>Final fit</th><td>{{ m.final_fit }}</td></tr>
+                <tr><th scope="row">Season</th><td>{{ m.season }} {{ m.season_type }}</td></tr>
+                <tr><th scope="row">Source</th><td>{{ m.source }}</td></tr>
+                <tr><th scope="row">Fitted</th><td>{{ m.created_at }}</td></tr>
+                <tr><th scope="row">Games used</th><td>{{ "{:,}".format(m.games_used) }} of {{ "{:,}".format(m.games_validated) }} validated</td></tr>
+                <tr><th scope="row">Eligible possessions modeled</th><td>{{ "{:,}".format(m.eligible_possessions) }}{% if possession_status.counted_possessions %} of {{ "{:,}".format(possession_status.counted_possessions) }} counted{% endif %}</td></tr>
+                <tr><th scope="row">Players fit</th><td>{{ "{:,}".format(m.players) }}</td></tr>
+                <tr><th scope="row">Selected ridge penalty</th><td>{{ m.selected_penalty }}</td></tr>
+                <tr><th scope="row">Holdout split</th><td>{{ m.training_game_ids|length }} training games, {{ m.holdout_game_ids|length }} holdout games; {{ m.holdout_split }}</td></tr>
+                <tr><th scope="row">League average (intercept)</th><td>{{ "%.1f"|format(100 * m.intercept_points_per_possession) }} points per 100 possessions</td></tr>
+                <tr><th scope="row">Final fit</th><td>{{ m.final_fit }}</td></tr>
             </table>
             <details>
                 <summary>Holdout error by penalty ({{ m.holdout_error_units }})</summary>
@@ -343,19 +365,19 @@
             {% set st = diagnostics.stability %}
             <p>These are validation metrics: how closely the model predicted points per possession in held-out games it was not trained on. Lower is better.</p>
             <table class="facts">
-                <tr><th></th><th>Ridge</th><th>Baseline (training average)</th></tr>
-                <tr><th>Mean absolute error<br><span class="small">The typical miss: the average distance between predicted and actual points on a possession.</span></th><td>{{ "%.4f"|format(ridge.mae) }}</td><td>{{ "%.4f"|format(base.mae) }}</td></tr>
-                <tr><th>Root mean squared error<br><span class="small">Like MAE, but big misses count extra, so it is always at least as large as MAE.</span></th><td>{{ "%.4f"|format(ridge.rmse) }}</td><td>{{ "%.4f"|format(base.rmse) }}</td></tr>
+                <tr><th scope="col"></th><th scope="col">Ridge</th><th scope="col">Baseline (training average)</th></tr>
+                <tr><th scope="row">Mean absolute error<br><span class="small">The typical miss: the average distance between predicted and actual points on a possession.</span></th><td>{{ "%.4f"|format(ridge.mae) }}</td><td>{{ "%.4f"|format(base.mae) }}</td></tr>
+                <tr><th scope="row">Root mean squared error<br><span class="small">Like MAE, but big misses count extra, so it is always at least as large as MAE.</span></th><td>{{ "%.4f"|format(ridge.rmse) }}</td><td>{{ "%.4f"|format(base.rmse) }}</td></tr>
             </table>
             <p class="small">Errors are in {{ diagnostics.metrics.units }}.</p>
             <table class="facts">
-                <tr><th>Improves on baseline<br><span class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</span></th><td>
+                <tr><th scope="row">Improves on baseline<br><span class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</span></th><td>
                     {% if diagnostics.improves == "yes" %}Yes: Ridge has lower MAE and RMSE than the baseline.
                     {% elif diagnostics.improves == "no" %}No: Ridge does not have lower MAE or RMSE than the baseline.
                     {% else %}Mixed: Ridge is lower on {{ "MAE" if ridge.mae < base.mae else "RMSE" }} only.{% endif %}
                 </td></tr>
-                <tr><th>Holdout</th><td>{{ "{:,}".format(ridge.holdout_games) }} games, {{ "{:,}".format(ridge.evaluated_possessions) }} possessions</td></tr>
-                <tr><th>Stability (penalty sensitivity)<br><span class="small">How similar player net effects stay between the smallest and largest Ridge penalty tried. Near 1 means the ranking barely depends on that tuning choice.</span></th><td>
+                <tr><th scope="row">Holdout</th><td>{{ "{:,}".format(ridge.holdout_games) }} games, {{ "{:,}".format(ridge.evaluated_possessions) }} possessions</td></tr>
+                <tr><th scope="row">Stability (penalty sensitivity)<br><span class="small">How similar player net effects stay between the smallest and largest Ridge penalty tried. Near 1 means the ranking barely depends on that tuning choice.</span></th><td>
                     {% if st.net_effect_correlation is none %}Not defined (too few players or identical net effects).
                     {% else %}Net effects at penalty {{ st.min_penalty }} and {{ st.max_penalty }} correlate at {{ "%.3f"|format(st.net_effect_correlation) }}.{% endif %}
                     This is penalty sensitivity, not statistical uncertainty: it is not a confidence interval or margin of error.
@@ -387,21 +409,24 @@
         {% endif %}
 
         {% if status and possession_status is none and model and players is not none %}
-        <section>
+        <section id="lineup-estimates">
             <h2>Lineup-total player estimates</h2>
             <p><strong>Unit:</strong> net points per 100 possessions compared with an average player, holding teammates and opponent team fixed.
                 +2.0 means the team was about 2 points per 100 possessions better with this player on the floor than with an average player instead.</p>
             <p class="small">Ridge penalty lambda = {{ model.lambda }} (picked on a 20% game holdout) ·
                 home court = {{ model.home_court }} per 100 · {{ model.players }} players fit.</p>
-            <form method="get">
+            <form method="get" action="#lineup-estimates" role="search">
+                <label>Player name
+                    <input type="search" name="q" value="{{ query }}">
+                </label>
                 <label>Minimum possessions on court
                     <input type="number" name="min_poss" value="{{ min_poss }}" min="0" step="100">
                 </label>
                 <button type="submit">Filter</button>
             </form>
-            <div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">
+            {% if players %}<div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">
             <table class="players">
-                <thead><tr><th>#</th><th>Player</th><th>Possessions</th><th>Estimate (per 100)</th></tr></thead>
+                <thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">Possessions</th><th scope="col">Estimate (per 100)</th></tr></thead>
                 <tbody>
                 {% for p in players %}
                     <tr{% if p.low_sample %} class="low"{% endif %}>
@@ -413,7 +438,8 @@
                 {% endfor %}
                 </tbody>
             </table>
-            </div>
+            </div>{% endif %}
+            {% if not players %}{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} possessions on court. Try another name or lower the minimum.</p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} possessions on court. Lower the minimum to see more.</p>{% endif %}{% endif %}
         </section>
 
         <section class="notice">

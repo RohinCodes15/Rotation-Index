@@ -247,6 +247,8 @@ thead th {
 
 tbody tr:hover {
     background: var(--surface-2);
+    outline: 1px solid var(--muted);
+    outline-offset: -1px;
 }
 
 .facts {
@@ -288,7 +290,9 @@ tbody tr:hover {
 }
 
 .pos { color: var(--good); }
-.neg { color: var(--bad); }
+.players .neg, .player-detail .neg { color: #ed625a; }
+.player-detail { margin: var(--s4) 0; padding: var(--s4) 0; border-block: 1px solid var(--border); }
+.player-detail td { font-variant-numeric: tabular-nums; }
 .low { color: var(--muted); }
 
 .tag {
@@ -372,7 +376,6 @@ input {
     height: 8px;
     margin: var(--s2) 0;
     overflow: hidden;
-    background: var(--surface-2);
     border-radius: 2px;
 }
 
@@ -382,7 +385,7 @@ input {
 
 .validated { background: var(--good); }
 .failed { background: var(--bad); }
-.missing { background: var(--surface-2); }
+.progress, .missing { background: var(--muted); }
 
 .key {
     display: inline-block;
@@ -390,10 +393,6 @@ input {
     height: 8px;
     margin: 0 var(--s1) 0 var(--s3);
     vertical-align: baseline;
-}
-
-.key.missing {
-    background: var(--border);
 }
 
 .legend .key:first-child {
