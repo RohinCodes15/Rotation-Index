@@ -64,9 +64,7 @@ lineups, and scoring events against both the API final score and the live feed's
 final scoreboard. Sub-out/sub-in bookkeeping events can temporarily have fewer
 than five players; those are retained but are not treated as basketball actions.
 Count differences versus API possessions are reported explicitly, since provider
-conventions may differ. Source, parse, or validation errors stop the run at once,
-leave `complete=false`, and record the failed game and error **in normal online
-loading mode**. Offline auditing instead records each missing or invalid game and
+conventions may differ. Offline auditing records each missing or invalid game and
 continues through the entire game list, as described below.
 
 ## Offline season audit
@@ -81,11 +79,45 @@ there is no network fallback.
 The audit writes only `data/cache/possessions/status.json`, using an atomic
 replacement with indented, sorted JSON. It leaves raw responses, normalized game
 files, and `verification.json` unchanged. Existing normalized files are not proof
-that a game passed this audit; consult its current status. To download missing
-data and regenerate normalized files, the separate normal command
-`python possessions_loader.py` is network-enabled and remains fail-fast.
+that a game passed this audit; consult its current status.
 
-The report contains:
+## Read-only storage preflight
+
+Run `.venv/bin/python possessions_loader.py --storage-preflight` before downloading.
+It requires the existing local `games.json` and never fetches or writes files.
+The JSON report includes available bytes, missing raw and normalized game counts,
+non-empty sample counts, and the largest cached file size of each type. Estimated
+additional space covers all missing raw and normalized files; the safety check
+requires twice that estimate. Exit 0 means sufficient space, 1 means insufficient
+space or an unknown estimate, and 2 means the local inputs could not be inspected.
+Without non-empty samples for a needed file type, the estimate is unknown and the
+check fails. This is an approximation: future games may exceed the sampled sizes,
+and disk space can change after the check. The download command runs this same
+check itself and stops before requesting any game if it fails; the standalone flag
+never starts a download.
+
+## Downloading missing raw files
+
+The separate network-enabled command `python possessions_loader.py` only acquires
+missing raw play-by-play (and `games.json` if absent, validated before it is saved).
+It first runs the storage preflight above and stops, requesting no game and writing
+no report, unless that check passes. Then for each listed game it:
+
+- skips games already cached; an existing raw file is never re-downloaded or replaced;
+- retries timeouts, connection errors and HTTP 429/500/502/503/504 up to 5 attempts,
+  waiting 1, 2, 4 and 8 seconds between them; other HTTP errors fail at once;
+- saves the feed atomically only if it parses as JSON for that game ID with actions
+  through at least period 4; anything else is not written;
+- records a failure and continues with the next game.
+
+It writes `data/cache/possessions/download_report.json` (`downloaded_game_ids`,
+`failed_game_ids`, and `failures` mapping each failed ID to a stable reason such as
+`http_404`, `invalid_json`, `incomplete_game` or `http_503_after_5_attempts`) and
+exits 1 if any game failed. It never normalizes, writes `status.json` or
+`verification.json`, or runs the model. Afterwards run `--rebuild-all` to build
+normalized files from the new raw files, then `--offline` to audit them.
+
+The offline audit report (`status.json`) contains:
 
 - `games_expected` is the required season-list size (1,230); `games_cached` counts
   listed raw cache paths that exist; `games_validated` counts those passing all
@@ -249,10 +281,10 @@ the basketball-action lineups in this game pass and the score still reconciles.
 This correction is explicitly guarded by game ID, action number, Q4, 4:20 clock,
 Boston team, substitution type `out`, and the expected original player ID. If the
 feed changes, that game's normalization fails with an error. The offline audit
-records the failure and continues; the online loader stops. Each additional correction must
+records the failure and continues. Each additional correction must
 have its own verified table entry. The offline audit records the applied correction
-and evidence under that game's `game_results` entry in `status.json`. Normal loading
-also writes opener verification details to `verification.json` for the dashboard.
+and evidence under that game's `game_results` entry in `status.json`. An existing
+`verification.json` from earlier loads is left unchanged.
 
 Only cached data is used in the offline audit; it does not resume downloads.
 Season readiness requires all 1,230 games validated; see the current audit status

@@ -179,13 +179,38 @@ dashboard display, and tests. Do not download or repair inputs as part of verifi
 The commands below are separate ingestion tools and require explicit authorization to use.
 
 ```bash
-python possessions_loader.py   # can download missing possession play-by-play and the game list
+python possessions_loader.py   # downloads missing raw play-by-play (and the game list) only
 python data_loader.py          # legacy loader: can download missing game-list and lineup-total data
 ```
 
 These are network-enabled commands. Rerunning either normal loader can download missing
 files even when some games are already cached. The `--offline` flag guarantees that the
 possession loader makes no network requests; the legacy `data_loader.py` has no offline flag.
+
+### Safe workflow for filling the possession cache
+
+When a download has been explicitly authorized, the possession cache is filled in four
+separate steps. Only step 2 uses the network; each step must finish before the next.
+
+1. `.venv/bin/python -B possessions_loader.py --storage-preflight` (read-only) estimates
+   the space the missing raw and normalized files need, with 2× headroom.
+2. `.venv/bin/python -B possessions_loader.py` downloads every missing raw game file. It
+   reruns the storage check and stops before requesting any game if it fails. It skips
+   cached games and never replaces an existing raw file. It retries timeouts, connection
+   errors and HTTP 429/500/502/503/504 up to 5 attempts with 1/2/4/8 s backoff, saves a
+   feed atomically only after it parses as that game's play-by-play, and continues past
+   failed games. Failed IDs and stable reasons are printed and saved in
+   `data/cache/possessions/download_report.json`; exit 1 means at least one game failed.
+   Rerunning it resumes: only games still missing are requested.
+3. `.venv/bin/python -B possessions_loader.py --rebuild-all --dry-run`, then without
+   `--dry-run`, builds normalized files from cached raw files only (no network).
+4. `.venv/bin/python -B possessions_loader.py --offline` audits the season and writes
+   `status.json`.
+
+Downloading never normalizes, audits, writes `status.json`, or fits the model. The model
+and dashboard keep refusing estimates until step 4 reports all 1,230 games validated with
+fresh inputs, so a partial or failed download leaves them unavailable rather than wrong.
+See POSSESSION_DATA.md for the exact checks.
 
 ## Run the gated possession model
 
