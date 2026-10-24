@@ -8,17 +8,65 @@
 </head>
 <body>
     <main>
-        <h1>Rotation Index</h1>
-        <p class="subtitle">NBA player impact, {{ status.season ~ ' ' ~ status.season_type if status else '2024-25 Regular Season' }}</p>
+        {# Header badge mirrors the notice/estimate branches below; it adds no new state. #}
+        {% if status %}{% set badge = ("muted", "Lineup-total data · " ~ status.games_used ~ " of " ~ status.games_in_season ~ " games") %}
+        {% elif not audit %}{% set badge = ("muted", "No data loaded") %}
+        {% elif not audit.ready and audit.raw_complete %}{% set badge = ("warn", "Estimates hidden · inputs changed since audit") %}
+        {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
+        {% elif possession_model and possession_players is not none %}{% set badge = ("ok", "Estimates shown · all " ~ "{:,}".format(audit.expected) ~ " games validated") %}
+        {% else %}{% set badge = ("warn", "Estimates hidden · no matching outputs") %}{% endif %}
+        <header class="masthead">
+            <div>
+                <h1>Rotation Index</h1>
+                <p class="subtitle">NBA player impact, {{ status.season ~ ' ' ~ status.season_type if status else '2024-25 Regular Season' }}</p>
+
+            </div>
+            <span class="badge badge-{{ badge[0] }}">{{ badge[1] }}</span>
+        </header>
+
+        {% if audit %}
+        {% macro n(value) %}{{ "{:,}".format(value) if value is number else "not recorded" }}{% endmacro %}
+        <section class="overview" aria-label="Season overview">
+            <dl class="overview-grid">
+                <div class="overview-card">
+                    <dt>Validated games</dt>
+                    <dd class="overview-value">{{ n(audit.counts.validated) }}</dd>
+                    <dd class="overview-detail">of {{ n(audit.expected) }} regular-season games</dd>
+                </div>
+                <div class="overview-card">
+                    <dt>Waiting games</dt>
+                    <dd class="overview-value">{{ n(audit.counts.missing) }}</dd>
+                    <dd class="overview-detail">Waiting on raw play-by-play</dd>
+                </div>
+                <div class="overview-card">
+                    <dt>Fresh model inputs</dt>
+                    <dd class="overview-value">{{ n(audit.inputs.counts.fresh) if audit.inputs.checked else "Not checked" }}</dd>
+                    <dd class="overview-detail">{{ "Match the saved audit" if audit.inputs.checked else "An audited game list is needed" }}</dd>
+                </div>
+                <div class="overview-card overview-model">
+                    <dt>Model status</dt>
+                    {% if not audit.ready %}
+                    <dd class="overview-value">Locked</dd>
+                    <dd class="overview-detail">{% if audit.raw_complete %}Estimates are locked until all model inputs match the audit.{% else %}Estimates are locked while the season is incomplete. All {{ n(audit.expected) }} games must validate.{% endif %}</dd>
+                    {% elif possession_model and possession_players is not none %}
+                    <dd class="overview-value">Available</dd>
+                    <dd class="overview-detail">Validated estimates are shown below.</dd>
+                    {% else %}
+                    <dd class="overview-value">Awaiting outputs</dd>
+                    <dd class="overview-detail">Inputs pass the model gate; matching saved estimates are not available.</dd>
+                    {% endif %}
+                </div>
+            </dl>
+        </section>
+        {% endif %}
 
         {% if not status %}
-        <section class="notice">
+        {# An incomplete season is already explained by the header, overview, and audit notice. #}
+        {% if not (audit and not audit.ready and not audit.raw_complete) %}
+        <section class="notice{{ ' notice-warn' if audit and not (audit.ready and possession_model) }}">
             {% if audit and not audit.ready and audit.raw_complete %}
             <h2>Model inputs out of date</h2>
             <p>All games validated, but some model inputs no longer match the audited cache, so player estimates are hidden. See the model inputs below.</p>
-            {% elif audit and not audit.ready %}
-            <h2>Possession cache incomplete</h2>
-            <p>Player estimates are unavailable until all {{ "{:,}".format(audit.expected) }} games validate. See the audit below.</p>
             {% elif audit and not possession_model %}
             <h2>Possession-model outputs unavailable</h2>
             <p>All games validated, but no saved model outputs match this cache yet. See below.</p>
@@ -30,6 +78,7 @@
             <p>Run <code>python data_loader.py</code>, then <code>python model.py</code>, then reload this page.</p>
             {% endif %}
         </section>
+        {% endif %}
         {% else %}
         <section>
             <h2>Data status</h2>
@@ -66,7 +115,6 @@
 
         {% if audit %}
         {% set c = audit.counts %}
-        {% macro n(value) %}{{ "{:,}".format(value) if value is number else "not recorded" }}{% endmacro %}
         {% macro game(g) %}{{ g.game_id }}{% if g.matchup %} ({{ g.matchup }}{% if g.date %}, {{ g.date }}{% endif %}){% endif %}{% endmacro %}
         <section class="audit">
             <h2>Possession cache audit</h2>

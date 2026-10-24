@@ -1,6 +1,7 @@
 """Offline Flask display checks. Run: python -m unittest test_dashboard."""
 
 import json
+import shutil
 import tempfile
 import unittest
 from dataclasses import replace
@@ -133,6 +134,7 @@ class DashboardDisplayTests(unittest.TestCase):
         html = self.page()
         self.assertIn("Lineup-total player estimates", html)
         self.assertIn("Legacy Fixture Player", html)
+        self.assertNotIn('class="overview"', html)
 
     def test_missing_model_metadata_hides_estimates(self):
         self.legacy_files()
@@ -243,6 +245,7 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assertIn("Possession-level player estimates", html)
         self.assertIn("Possession model details", html)
         self.assertNotIn("Possession cache incomplete", html)
+        self.assertIn('<dd class="overview-value">Available</dd>', html)
         for heading in ("Off. poss.", "Def. poss.", "Offense", "Defense", "Net"):
             self.assertIn(f"<th>{heading}</th>", html)
         self.assertIn("Defense is points prevented", html)
@@ -539,6 +542,36 @@ class DashboardDisplayTests(unittest.TestCase):
         for label in ("Stale (changed since the audit)", "Could not be verified", "Missing normalized file"):
             self.assertIn(f"<tr><th>{label}</th><td>0</td></tr>", html)
 
+    def test_real_incomplete_cache_overview_shows_counts_and_locked_estimates(self):
+        real_root = REAL_GAME.parent.parent
+        for relative in ('status.json', 'games.json', 'games/0022400061.json',
+                         'pbpstats/pbp/live_0022400061.json'):
+            destination = self.data / 'cache/possessions' / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(real_root / relative, destination)
+        html = self.page()
+        overview = html.split('<section class="overview"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('aria-label="Season overview"', overview)
+        self.assertIn('<dl class="overview-grid">', overview)
+        for label, value in (('Validated games', '1'), ('Waiting games', '1,229'),
+                             ('Fresh model inputs', '1'), ('Model status', 'Locked')):
+            self.assertRegex(overview, rf'<dt>{label}</dt>\s*<dd class="overview-value">{value}</dd>')
+        self.assertIn('Estimates are locked while the season is incomplete.', overview)
+        self.assertIn('All 1,230 games must validate.', overview)
+        self.assert_possession_hidden(html)
+        self.assert_gate_rejects()
+
+    def test_overview_uses_fixture_counts_and_preserves_unknown_inputs(self):
+        self.audit_status(failed=self.FIXTURE_IDS[:1], missing=self.FIXTURE_IDS[4:])
+        overview = self.page().split('<section class="overview"', 1)[1].split('</section>', 1)[0]
+        for label, value in (('Validated games', '3'), ('Waiting games', '1,226'),
+                             ('Fresh model inputs', '0')):
+            self.assertRegex(overview, rf'<dt>{label}</dt>\s*<dd class="overview-value">{value}</dd>')
+        self.write_json('cache/possessions/status.json', {})
+        overview = self.page().split('<section class="overview"', 1)[1].split('</section>', 1)[0]
+        self.assertRegex(overview, r'<dt>Validated games</dt>\s*<dd class="overview-value">not recorded</dd>')
+        self.assertRegex(overview, r'<dt>Fresh model inputs</dt>\s*<dd class="overview-value">Not checked</dd>')
+
     def test_min_possessions_filters_on_offense_plus_defense(self):
         self.complete_possession_outputs()
         table = pd.read_csv(self.data / "possession_players.csv")
@@ -582,6 +615,7 @@ class DashboardDisplayTests(unittest.TestCase):
         self.assert_possession_hidden(html)
         self.assertIn("no possession-model outputs were found", html)
         self.assertIn("All 1,230 games validated.", html)
+        self.assertIn('<dd class="overview-value">Awaiting outputs</dd>', html)
 
     def test_incomplete_audit_shows_progress_counts_failures_and_corrections(self):
         self.write_json("cache/possessions/games.json", {"results": [
