@@ -95,6 +95,37 @@ class SeasonIsolationTests(unittest.TestCase):
             self.assertEqual(model.check_game_inputs(gid, status['game_results'][gid], self.raw, self.normalized).category, 'fresh')
         self.assertEqual(self.snapshot(), before)
 
+    def test_verified_2025_fixture_outputs_are_repeatable_and_displayed(self):
+        for gid in self.ids:
+            self.write_game(gid)
+        loader.audit_cached_season()
+        status = self.root / "status.json"
+        model.fit_possession_ridge(status_path=status, output_dir=self.data)
+        metadata_path = self.data / "possession_model.json"
+        metadata = json.loads(metadata_path.read_text())
+        diagnostics_path = self.data / "possession_diagnostics.json"
+        diagnostics = diagnostics_path.read_bytes()
+        players_path = self.data / "possession_players.csv"
+        players = players_path.read_bytes()
+        self.assertEqual(metadata["season"], "2025-26")
+        self.assertEqual(metadata["games_used"], len(self.games))
+        self.assertEqual(json.loads(diagnostics)["season"], "2025-26")
+        model.fit_possession_ridge(status_path=status, output_dir=self.data)
+        repeated = json.loads(metadata_path.read_text())
+        metadata.pop("created_at")
+        repeated.pop("created_at")
+        self.assertEqual(metadata, repeated)
+        self.assertEqual(players, players_path.read_bytes())
+        self.assertEqual(diagnostics, diagnostics_path.read_bytes())
+        client = dashboard.app.test_client()
+        page = client.get('/?min_poss=0')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Possession-level player estimates", page.get_data(as_text=True))
+        self.assertNotIn("Lineup-total player estimates", page.get_data(as_text=True))
+        exported = client.get('/diagnostics.json')
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(exported.get_json()["season"], "2025-26")
+
     def test_2024_game_is_rejected_and_leftovers_are_ignored(self):
         old = "0022400061"
         with patch.object(loader, "Client", side_effect=AssertionError("old game must not reach parser")):

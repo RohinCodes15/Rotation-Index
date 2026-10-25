@@ -36,6 +36,21 @@ Failures, each needing official evidence before any correction:
   `0022501044`: pbpstats finds only four period-5 starters for one team
   (`InvalidNumberOfStartersException`), so the five-player lineup check fails.
 
+**Model publication verification, 2026-10-25:** the existing full-season fit
+entry point rejected this audit before invoking the solver. Read-only freshness
+checks found 1,223 fresh games and 7 unverifiable games. The production dashboard
+returned HTTP 200 with both possession and legacy estimates hidden; diagnostics
+export returned HTTP 404. No production estimates or diagnostics were created or
+overwritten. These seven data failures still require verified evidence before
+the full-season fit can run; no validation or correction guards were relaxed.
+
+A separate three-game, test-only 2025–26 manifest exercises successful gated
+publication entirely in a temporary directory. Its dashboard displays possession
+estimates and exports matching 2025–26 diagnostics. Repeated fits produce identical
+player CSVs, diagnostics, and model metadata except for `created_at`. Ridge
+mathematics and output formats are unchanged. Production data and graphify outputs
+remain untouched; verification uses no downloads or network requests.
+
 
 Run with the existing virtual environment (verified with `pbpstats==1.3.11`):
 
