@@ -18,6 +18,12 @@ Historical 2024–25 examples and correction fixtures below remain regression
 references, not current-season inputs. The tests explicitly isolate those
 historical configurations; no play-by-play was fetched for this migration.
 
+**Raw download, 2026-10-25:** an authorized run of `possessions_loader.py` fetched
+raw play-by-play for all 1,230 manifest games sequentially (1,230 downloaded,
+0 already cached, 0 failed; about 464 MB). No 2024–25 game was requested; the
+existing `live_0022400061.json` was left untouched. Nothing was normalized or
+audited by that run.
+
 
 Run with the existing virtual environment (verified with `pbpstats==1.3.11`):
 
