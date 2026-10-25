@@ -18,8 +18,9 @@ IDS = sorted(season.GAMES)  # Synthetic feeds below use only authoritative seaso
 
 
 def feed(game_id, periods=4):
-    return {"game": {"gameId": game_id,
-                     "actions": [{"actionNumber": p, "period": p} for p in range(1, periods + 1)]}}
+    actions = [{"actionNumber": p, "period": p} for p in range(1, periods + 1)]
+    actions[-1].update(actionType="game", subType="end", clock="PT00M00.00S")
+    return {"game": {"gameId": game_id, "actions": actions}}
 
 
 class FakeResponse:
@@ -273,6 +274,54 @@ class DownloadMissingGamesTests(unittest.TestCase):
             self.assertFalse((self.pbp / f"live_{game_id}.json").exists())
         self.assertEqual(len(report["downloaded_game_ids"]), 1230 - len(cases))
         self.assertEqual([s for s in self.sleeps if s != 0.15], [])
+
+    def test_complete_regulation_and_overtime_require_all_periods_and_game_end(self):
+        gid = IDS[0]
+        for periods in (4, 5, 6):
+            self.assertIsNone(pl.live_pbp_problem(gid, feed(gid, periods)))
+        for actions in (
+            feed(gid)["game"]["actions"][:-1],
+            [{"period": p} for p in (1, 2, 3, 4)],
+            [feed(gid)["game"]["actions"][i] for i in (0, 3)],
+            [dict(period=1), dict(period=2), dict(period=3),
+             dict(period=4, actionType="game", subType="end", clock="PT00M01.00S")],
+            feed(gid, 5)["game"]["actions"] + [dict(period=4, actionType="game", subType="end",
+                                                     clock="PT00M00.00S")],
+            [None], [{"period": True}], [{"period": 0}], [{"period": 10**12}],
+        ):
+            with self.subTest(actions=actions):
+                self.assertEqual(pl.live_pbp_problem(gid, {"game": {"gameId": gid, "actions": actions}}),
+                                 "incomplete_game")
+
+    def test_incomplete_download_is_not_saved_and_invalid_cache_is_never_replaced(self):
+        valid, broken, truncated, later = IDS[:4]
+        self.pbp.mkdir(parents=True)
+        original = {valid: (json.dumps(feed(valid), indent=2) + "\n").encode(), broken: b'{broken'}
+        for gid, content in original.items():
+            (self.pbp / f"live_{gid}.json").write_bytes(content)
+        unfinished = feed(truncated)
+        unfinished["game"]["actions"][-1].pop("actionType")
+        self.scripts[truncated] = [FakeResponse(body=unfinished)]
+        protected = [self.root / "status.json", self.root / "verification.json",
+                     self.root / "games/saved.json", self.root.parent.parent / "possession_model.json",
+                     self.root.parent.parent / "possession_players.csv"]
+        for path in protected:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"existing output")
+        with patch.object(season, "GAMES", {gid: season.GAMES[gid] for gid in IDS[:4]}):
+            report = pl.download_missing_games()
+        self.assertEqual(report["already_cached"], 1)
+        self.assertEqual(report["downloaded_game_ids"], [later])
+        self.assertEqual(report["failures"], {broken: "cached_invalid_cached_raw",
+                                             truncated: "incomplete_game"})
+        self.assertEqual(self.calls, Counter({truncated: 1, later: 1}))
+        self.assertFalse((self.pbp / f"live_{truncated}.json").exists())
+        self.assertEqual(set(report["failed_game_ids"]) | set(report["downloaded_game_ids"]) | {valid},
+                         set(IDS[:4]))
+        for gid, content in original.items():
+            self.assertEqual((self.pbp / f"live_{gid}.json").read_bytes(), content)
+        for path in protected:
+            self.assertEqual(path.read_bytes(), b"existing output")
 
     def test_failed_write_keeps_no_partial_file_and_later_games_continue(self):
         real_save, broken = pl.save, IDS[30]

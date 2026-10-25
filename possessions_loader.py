@@ -284,7 +284,12 @@ def live_pbp_problem(game_id, data):
     if not isinstance(actions, list) or not actions:
         return "missing_actions"
     periods = [a.get("period") if isinstance(a, dict) else None for a in actions]
-    if any(type(p) is not int for p in periods) or max(periods) < 4:
+    if (any(type(p) is not int or p < 1 for p in periods) or max(periods) < 4
+            or len(set(periods)) != max(periods)):
+        return "incomplete_game"
+    last = actions[-1]
+    if (last.get("actionType") != "game" or last.get("subType") != "end"
+            or last.get("clock") != "PT00M00.00S" or last["period"] != max(periods)):
         return "incomplete_game"
     return None
 

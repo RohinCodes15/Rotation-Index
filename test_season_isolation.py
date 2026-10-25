@@ -46,6 +46,7 @@ class SeasonIsolationTests(unittest.TestCase):
 
     def write_game(self, gid):
         raw = {"game": {"gameId": gid, "actions": [{"period": p} for p in range(1, 5)]}}
+        raw["game"]["actions"][-1].update(actionType="game", subType="end", clock="PT00M00.00S")
         normalized = {"schema_version": loader.NORMALIZED_SCHEMA_VERSION,
                       "pbpstats_version": loader.version("pbpstats"), "game": self.games[gid],
                       "applied_corrections": [], "score_by_team": {},
