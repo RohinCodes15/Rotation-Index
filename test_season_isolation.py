@@ -183,6 +183,22 @@ class SeasonIsolationTests(unittest.TestCase):
                         build.assert_not_called()
                 self.assertEqual(self.snapshot(), before)
 
+    def test_corrupt_audit_hides_estimates_and_diagnostics(self):
+        (self.data / "status.json").write_text(json.dumps({
+            "season": season.SEASON, "season_type": season.SEASON_TYPE,
+            "source": "legacy fixture", "loaded_at": "offline", "games_used": 1,
+            "games_in_season": len(self.games), "failed_downloads": {}, "games_failing_checks": {},
+            "zero_possession_lineups_dropped": 0, "lineup_rows": 1, "offensive_possessions": 1,
+        }))
+        (self.data / "model.json").write_text('{"lambda": 1}')
+        (self.data / "rapm.csv").write_text("must not be read")
+        path = self.root / "status.json"
+        for content in (b"{broken", b"null", b"[]", b'"invalid"', b"\xff"):
+            with self.subTest(content=content):
+                path.write_bytes(content)
+                self.assert_blocked_without_output_writes()
+                self.assertEqual(dashboard.app.test_client().get('/diagnostics.json').status_code, 404)
+
     def test_stale_unverifiable_and_wrong_season_inputs_keep_estimates_hidden(self):
         for gid in self.ids:
             self.write_game(gid)

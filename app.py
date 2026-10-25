@@ -27,7 +27,14 @@ _gate_cache = {}
 
 def read_json(name):
     path = DATA_DIR / name
-    return json.loads(path.read_text()) if path.exists() else None
+    try:
+        value = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, UnicodeError):
+        return {}
+    # An invalid saved file must not enable the missing-audit legacy fallback.
+    return value if isinstance(value, dict) else {}
 
 
 def cached_player_names(player_ids):

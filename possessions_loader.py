@@ -500,7 +500,7 @@ def audit_cached_season(*, write_status=True):
     """
     status = {
         "season": SEASON, "season_type": "Regular Season", "mode": "offline_audit",
-        "source": "cached NBA live play-by-play via pbpstats; cached pbpstats.com game list",
+        "source": "cached NBA live play-by-play via pbpstats; pinned regular-season manifest",
         "complete": False, "audit_complete": False, "games_expected": len(season.GAMES),
         "games_cached": 0, "games_validated": 0, "games_failed": 0, "games_missing": 0,
         "expected_game_ids": [], "cached_game_ids": [], "validated_game_ids": [],
