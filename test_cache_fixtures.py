@@ -39,6 +39,17 @@ def attach_lineage_fixture(status, root):
     return status
 
 
+def historical_incomplete_audit(root):
+    """Audit only the frozen 2024-25 opener into root, independent of production status.json."""
+    real = Path(__file__).parent / "data/cache/possessions"
+    for relative in ("games/0022400061.json", "pbpstats/pbp/live_0022400061.json"):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_bytes((real / relative).read_bytes())
+    with patch.object(loader, "ROOT", root), patch.object(loader, "RAW", root / "pbpstats"), \
+            patch.object(loader, "NORMALIZED", root / "games"):
+        return loader.audit_cached_season()
+
+
 def historical_season_fixture():
     """Explicit historical configuration for tests backed by the unchanged 2024 cache.
 

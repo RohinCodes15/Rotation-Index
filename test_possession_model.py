@@ -56,7 +56,7 @@ def complete_audit_fixture():
     }
 
 
-from test_cache_fixtures import historical_season_fixture
+from test_cache_fixtures import historical_incomplete_audit, historical_season_fixture
 
 
 def setUpModule():
@@ -672,8 +672,10 @@ class PossessionModelInputTests(unittest.TestCase):
             build_possession_rows(changed)
 
     def test_incomplete_season_cannot_be_used_for_fitting(self):
-        with self.assertRaisesRegex(IncompleteSeasonError, "1 of 1230 games validated"):
-            require_complete_season(STATUS)
+        with tempfile.TemporaryDirectory() as temp:
+            historical_incomplete_audit(Path(temp))
+            with self.assertRaisesRegex(IncompleteSeasonError, "1 of 1230 games validated"):
+                require_complete_season(Path(temp) / "status.json")
 
 
 class RidgeSolverRealGameTests(unittest.TestCase):

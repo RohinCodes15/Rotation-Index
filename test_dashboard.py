@@ -3,7 +3,6 @@
 import json
 import re
 from html.parser import HTMLParser
-import shutil
 import tempfile
 import unittest
 from dataclasses import replace
@@ -23,7 +22,7 @@ REAL_GAME = Path(__file__).resolve().parent / "data/cache/possessions/games/0022
 REAL_GAME_LIST = REAL_GAME.parent.parent / "games.json"
 
 
-from test_cache_fixtures import historical_season_fixture
+from test_cache_fixtures import historical_incomplete_audit, historical_season_fixture
 
 
 def setUpModule():
@@ -598,12 +597,7 @@ class DashboardDisplayTests(unittest.TestCase):
             self.assertIn(f'<tr class="input-{state}"><th scope="row">{label}</th><td>0</td></tr>', html)
 
     def test_real_incomplete_cache_overview_shows_counts_and_locked_estimates(self):
-        real_root = REAL_GAME.parent.parent
-        for relative in ('status.json', 'games.json', 'games/0022400061.json',
-                         'pbpstats/pbp/live_0022400061.json'):
-            destination = self.data / 'cache/possessions' / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(real_root / relative, destination)
+        historical_incomplete_audit(self.data / 'cache/possessions')
         html = self.page()
         overview = html.split('<section class="overview"', 1)[1].split('</section>', 1)[0]
         self.assertIn('aria-label="Season overview"', overview)

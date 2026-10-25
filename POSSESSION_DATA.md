@@ -24,6 +24,18 @@ raw play-by-play for all 1,230 manifest games sequentially (1,230 downloaded,
 existing `live_0022400061.json` was left untouched. Nothing was normalized or
 audited by that run.
 
+**Rebuild and offline audit, 2026-10-25:** `--rebuild-all` then `--offline`, local
+files only. 1,223 of 1,230 games validated with verified lineage and fresh inputs;
+7 failed closed, 0 missing, 0 stale; 0 corrections applied (the only verified
+correction is for 2024–25). The model gate is **not ready** and no model was fit.
+Failures, each needing official evidence before any correction:
+
+- `0022500147` (DET/DAL, 2025-11-01): the live feed treats DET as home; the
+  manifest lists DAL as home, so the final score check fails.
+- `0022500458`, `0022500521`, `0022500550`, `0022500637`, `0022501029`,
+  `0022501044`: pbpstats finds only four period-5 starters for one team
+  (`InvalidNumberOfStartersException`), so the five-player lineup check fails.
+
 
 Run with the existing virtual environment (verified with `pbpstats==1.3.11`):
 
