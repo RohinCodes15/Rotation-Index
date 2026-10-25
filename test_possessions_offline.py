@@ -17,6 +17,13 @@ GAME_ID = '0022400061'
 REAL_RAW = REAL_ROOT / 'pbpstats/pbp' / f'live_{GAME_ID}.json'
 
 
+from test_cache_fixtures import historical_season_fixture
+
+
+def setUpModule():
+    unittest.enterModuleContext(historical_season_fixture())
+
+
 class OfflineAuditTests(unittest.TestCase):
     def test_rebuild_cli_keeps_audit_separate(self):
         self.copy_cache()
@@ -729,6 +736,8 @@ class OfflineAuditTests(unittest.TestCase):
         games['results'] = [{**opener, 'GameId': g['GameId']} if g['GameId'] in clones else g
                             for g in games['results']]
         games_path.write_text(json.dumps(games))
+        # These cloned games also need an explicit synthetic manifest in this fixture.
+        self.enterContext(patch.object(pl.season, 'GAMES', {g['GameId']: g for g in games['results']}))
         feed = json.loads(REAL_RAW.read_text())
         repaired_raw = None
         for gid in sorted(clones):
@@ -765,8 +774,8 @@ class OfflineAuditTests(unittest.TestCase):
                 self.assertFalse(dashboard.possession_audit(status, None)['ready'])
                 for gid in selected:
                     scoped = {**status, 'expected_game_ids': [gid]}
-                    view = dashboard.input_freshness(scoped, lambda game_id, fields: fields)
-                    category = next(k for k, n in view['counts'].items() if n)
+                    category = possession_model.check_game_inputs(
+                        gid, status['game_results'][gid], self.raw / 'pbp', self.normalized).category
                     self.assertEqual(category, expected[gid], gid)
                     if category == 'fresh':
                         possession_model._require_current_lineage(scoped, status_path)
@@ -867,7 +876,7 @@ class OfflineAuditTests(unittest.TestCase):
                 pl.cli(['--offline'])
         self.assertEqual(stop.exception.code, 1)  # audit completed, season incomplete
         view, gate = both_views()
-        self.assertTrue(view['fresh'])
+        self.assertFalse(view['fresh'])  # one fresh game cannot certify the authoritative season
         self.assertEqual((view['counts']['fresh'], view['problems']), (1, []))
         self.assertEqual(gate, 'fresh')
         self.assertFalse(any(p.name in ('possession_players.csv', 'possession_model.json', 'rapm.csv', 'model.json')

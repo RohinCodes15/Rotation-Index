@@ -23,6 +23,13 @@ REAL_GAME = Path(__file__).resolve().parent / "data/cache/possessions/games/0022
 REAL_GAME_LIST = REAL_GAME.parent.parent / "games.json"
 
 
+from test_cache_fixtures import historical_season_fixture
+
+
+def setUpModule():
+    unittest.enterModuleContext(historical_season_fixture())
+
+
 class DashboardDisplayTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

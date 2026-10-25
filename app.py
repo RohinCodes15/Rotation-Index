@@ -4,10 +4,10 @@ import math
 from pathlib import Path
 
 import pandas as pd
+import season_config as season
 from flask import Flask, abort, render_template, request
 
 from possession_model import (
-    EXPECTED_REGULAR_SEASON_GAMES,
     IncompleteSeasonError,
     check_game_inputs,
     require_complete_season,
@@ -37,8 +37,9 @@ def cached_player_names(player_ids):
     fill gaps with the raw live feeds' playerNameI. Unreadable files are skipped;
     unnamed players fall back to their ID in the template.
     """
-    lineup_files = sorted((DATA_DIR / "raw/lineups").glob("*.json"))
-    live_files = sorted((DATA_DIR / "cache/possessions/pbpstats/pbp").glob("live_*.json"))
+    lineup_files = sorted(p for p in (DATA_DIR / "raw/lineups").glob("*.json") if p.stem in season.GAMES)
+    live_files = sorted(p for p in (DATA_DIR / "cache/possessions/pbpstats/pbp").glob("live_*.json")
+                        if p.stem.removeprefix("live_") in season.GAMES)
     wanted = frozenset(int(p) for p in player_ids)
     key = (wanted, tuple((str(f), f.stat().st_mtime_ns) for f in lineup_files + live_files))
     if key in _name_cache:
@@ -88,8 +89,13 @@ def _id_ranges(game_ids):
 
 def input_freshness(status, described):
     """Per-game view of whether normalized model inputs match the audited cache."""
-    expected_ids = status.get("expected_game_ids")
+    reported_ids = status.get("expected_game_ids")
+    if not isinstance(reported_ids, list) or not reported_ids:
+        return {"checked": False, "counts": {}, "problems": [], "fresh": False, "signature": ()}
+    expected_ids = list(season.GAMES)
     results = status.get("game_results") if isinstance(status.get("game_results"), dict) else {}
+    if status.get("season") != season.SEASON:
+        results = {}
     if not isinstance(expected_ids, list) or not expected_ids:
         return {"checked": False, "counts": {}, "problems": [], "fresh": False, "signature": ()}
     root = DATA_DIR / "cache/possessions"
@@ -113,6 +119,9 @@ def possession_audit(status, verification):
     `ready` requires both the model's own season gate and this page's per-game
     freshness check, so estimates never show when either one fails.
     """
+    if status.get("season") != season.SEASON:
+        status = {"season": season.SEASON, "error": "Saved audit belongs to a different season; run a new offline audit."}
+        verification = None
     try:
         listed = read_json("cache/possessions/games.json") or {}
         games = {g["GameId"]: {"date": g.get("Date"),
@@ -124,7 +133,7 @@ def possession_audit(status, verification):
     def described(game_id, fields):
         return {**fields, "game_id": game_id, **games.get(game_id, {"date": None, "matchup": None})}
 
-    expected = _count(status.get("games_expected")) or EXPECTED_REGULAR_SEASON_GAMES
+    expected = len(season.GAMES)
     counts = {}
     for category in ("cached", "validated", "failed", "missing"):
         ids = status.get(f"{category}_game_ids")
@@ -144,7 +153,7 @@ def possession_audit(status, verification):
                    for correction in result.get("applied_corrections") or [] if isinstance(correction, dict)]
     if not results and verification:
         corrections = [described(c.get("game_id"), c) for c in verification.get("applied_corrections") or []
-                       if isinstance(c, dict)]
+                       if isinstance(c, dict) and c.get("game_id") in season.GAMES]
     missing_ids = status.get("missing_game_ids") if isinstance(status.get("missing_game_ids"), list) else []
     differences = status.get("possession_count_differences")
 
@@ -167,7 +176,7 @@ def possession_audit(status, verification):
     else:
         gate_passed = _gate_cache[gate_key]
     ready = gate_passed and inputs["fresh"]
-    raw_complete = (status.get("mode") == "offline_audit" and status.get("audit_complete") is True
+    raw_complete = (status.get("season") == season.SEASON and status.get("mode") == "offline_audit" and status.get("audit_complete") is True
                     and counts["validated"] == expected and not counts["failed"] and not counts["missing"]
                     and not failures)
     reasons = []
@@ -253,9 +262,9 @@ def possession_outputs(possession_status, ready):
                                   == (status.get("season"), status.get("season_type")),
         "data source": metadata.get("source") == status.get("source"),
         "validated and used game counts": metadata.get("games_validated") == status.get("games_validated")
-                                          and metadata.get("games_used") == EXPECTED_REGULAR_SEASON_GAMES,
+                                          and metadata.get("games_used") == len(season.GAMES),
         "audited game IDs": split_ok and not set(split[0]) & set(split[1])
-                            and len(split[0]) + len(split[1]) == EXPECTED_REGULAR_SEASON_GAMES
+                            and len(split[0]) + len(split[1]) == len(season.GAMES)
                             and set(split[0]) | set(split[1]) == set(status.get("validated_game_ids") or []),
         "model-eligible possessions": metadata.get("eligible_possessions") == status.get("model_eligible_possessions"),
         "defense sign and net definition": metadata.get("defense_sign") == "positive means points prevented"
@@ -331,6 +340,8 @@ def diagnostics_export():
 @app.route("/")
 def home():
     status = read_json("status.json")
+    if status and status.get("season") != season.SEASON:
+        status = None
     possession_status = read_json("cache/possessions/status.json")
     verification = read_json("cache/possessions/verification.json")
     model = read_json("model.json") if status and possession_status is None else None

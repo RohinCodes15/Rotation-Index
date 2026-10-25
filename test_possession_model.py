@@ -52,8 +52,15 @@ def complete_audit_fixture():
         "expected_game_ids": ids, "cached_game_ids": ids, "validated_game_ids": ids,
         "failed_game_ids": [], "missing_game_ids": [], "validation_errors": {},
         "game_results": {gid: {"status": "validated"} for gid in ids},
-        "season": "test fixture",
+        "season": "2024-25", "season_type": "Regular Season",
     }
+
+
+from test_cache_fixtures import historical_season_fixture
+
+
+def setUpModule():
+    unittest.enterModuleContext(historical_season_fixture())
 
 
 class HoldoutDiagnosticsTests(unittest.TestCase):
@@ -423,7 +430,7 @@ class PossessionModelInputTests(unittest.TestCase):
             diagnostics_path = output / 'possession_diagnostics.json'
             diagnostics = json.loads(diagnostics_path.read_text())
             self.assertEqual(diagnostics['schema_version'], 1)
-            self.assertEqual(diagnostics['season'], 'test fixture')
+            self.assertEqual(diagnostics['season'], complete_audit_fixture()['season'])
             saved_status = json.loads(status.read_text())
             self.assertEqual(diagnostics['audit_sha256'], hashlib.sha256(json.dumps(
                 saved_status, sort_keys=True, separators=(',', ':'), allow_nan=False,

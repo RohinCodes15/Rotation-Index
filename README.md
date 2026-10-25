@@ -1,9 +1,28 @@
 # Rotation-Index
+
+## Current season configuration
+
+The configured season is **2025–26 Regular Season**. The authoritative pbpstats
+manifest is pinned separately at `manifests/2025-26-regular-season.json` (retrieved
+2026-10-24 from `get-games/nba?Season=2025-26&SeasonType=Regular%20Season`). Its
+actual 1,230 game IDs, not a prefix-generated range or audit-declared count, define
+the full-season gate. `season_config.py` owns the configured season and manifest.
+
+Existing production caches have not been migrated or overwritten. A cached
+2024–25 game list or audit cannot certify 2025–26, and `0022400061` is excluded
+from the current manifest. Old raw/normalized leftovers are ignored by current
+model loading; wrong identities inside current files are rejected. Current
+metadata must match the pinned manifest. Missing, stale, unverifiable, or
+wrong-season inputs block fitting/publication and hide dashboard estimates.
+Historical 2024–25 examples and correction fixtures below remain regression
+references, not current-season inputs. The tests explicitly isolate those
+historical configurations; no play-by-play was fetched for this migration.
+
 NBA lineup impact analysis using adjusted plus-minus to estimate player contributions while accounting for teammates and opponents.
 
 ## Phase 1: what it does
 
-1. `possessions_loader.py` caches real 2024-25 regular-season possessions and both on-court lineups
+1. `possessions_loader.py` caches real 2025-26 regular-season possessions and both on-court lineups
    from NBA live play-by-play, parsed with `pbpstats`, and validates each game.
 2. `possession_model.py` selects a ridge penalty by game holdout, fits separate offense
    and defense effects, and writes summaries only after the full-season audit gate passes.
@@ -55,7 +74,7 @@ missing or mismatched outputs are withheld. When neither status exists, it shows
 ## Audit the possession cache offline
 
 Use this local workflow. All commands below use existing cached data and make no
-network requests. Replace `0022400061` with a game ID from the cached season list.
+network requests. Replace `0022500001` with a game ID from the cached season list.
 
 1. **Inspect without writing.** View the current cache and input-freshness report:
 
@@ -68,14 +87,14 @@ network requests. Replace `0022400061` with a game ID from the cached season lis
    lineage comparisons run, but no files are written:
 
    ```bash
-   .venv/bin/python -B possessions_loader.py --rebuild 0022400061 --dry-run
+   .venv/bin/python -B possessions_loader.py --rebuild 0022500001 --dry-run
    .venv/bin/python -B possessions_loader.py --rebuild-all --dry-run
    ```
 
 3. **Rebuild from locally cached raw files.** Choose one game or the batch:
 
    ```bash
-   .venv/bin/python -B possessions_loader.py --rebuild 0022400061
+   .venv/bin/python -B possessions_loader.py --rebuild 0022500001
    .venv/bin/python -B possessions_loader.py --rebuild-all
    ```
 
@@ -147,7 +166,7 @@ See [POSSESSION_DATA.md](POSSESSION_DATA.md) for validation and correction detai
 python possessions_loader.py --offline        # full cached-game audit, zero network requests
 ```
 
-The audit reads the existing 2024–25 game list, examines every listed game, and continues
+The audit reads the cached 2025–26 game list (it must match the pinned manifest), examines every listed game, and continues
 past missing or invalid files. It writes only `data/cache/possessions/status.json`, leaving
 raw play-by-play and normalized game caches untouched. A missing or malformed game list
 cannot be fetched in offline mode. Reports are deterministic for unchanged inputs.
@@ -306,7 +325,7 @@ The offline audit never downloads or repairs those inputs.
 
 ## Integrity workflow
 
-The scope is the **2024–25 NBA regular season: all 1,230 games**. Raw validation
+The scope is the **2025–26 NBA regular season: all 1,230 games**. Raw validation
 and input freshness are separate requirements. `audit_complete=true` means the audit
 finished scanning; `complete=true` means every raw game validated, not that every saved
 model input is fresh. The dashboard and fitting gate share the same comparison helper.

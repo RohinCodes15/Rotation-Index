@@ -12,8 +12,9 @@ from unittest.mock import patch
 import requests
 
 import possessions_loader as pl
+import season_config as season
 
-IDS = [f"00224{n:05d}" for n in range(1, 1231)]  # synthetic, not real game IDs
+IDS = sorted(season.GAMES)  # Synthetic feeds below use only authoritative season IDs.
 
 
 def feed(game_id, periods=4):
@@ -61,7 +62,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
         mock = patch.object(pl, "storage_preflight", side_effect=self.check_storage)
         self.preflight = mock.start()
         self.addCleanup(mock.stop)
-        self.game_list = FakeResponse(body={"results": [{"GameId": i} for i in IDS]})
+        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS]})
         mock = patch.object(pl.requests, "get", side_effect=self.get)
         mock.start()
         self.addCleanup(mock.stop)
@@ -108,7 +109,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
 
     def write_game_list(self):
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / "games.json").write_text(json.dumps({"results": [{"GameId": i} for i in IDS]}))
+        (self.root / "games.json").write_text(json.dumps({"results": [pl.season.GAMES[i] for i in IDS]}))
 
     def report(self):
         return json.loads((self.root / "download_report.json").read_text())
@@ -127,7 +128,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
             self.assertEqual((self.pbp / f"live_{game_id}.json").read_bytes(), content)
             self.assertNotIn(game_id, self.calls)
         missing = [i for i in IDS if i not in cached]
-        self.assertEqual(report, {"season": "2024-25", "games_listed": 1230, "already_cached": 2,
+        self.assertEqual(report, {"season": "2025-26", "games_listed": 1230, "already_cached": 2,
                                   "downloaded_game_ids": missing, "failed_game_ids": [], "failures": {}})
         self.assertEqual(self.report(), report)
         self.assertEqual(json.loads((self.pbp / f"live_{IDS[1]}.json").read_text()), feed(IDS[1]))
@@ -303,7 +304,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
         self.assertIn(IDS[31], report["downloaded_game_ids"])
 
     def test_game_list_is_validated_before_it_is_cached(self):
-        self.game_list = FakeResponse(body={"results": [{"GameId": i} for i in IDS[:-1]]})
+        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS[:-1]]})
         with self.assertRaisesRegex(ValueError, "expected 1,230 distinct"):
             pl.download_missing_games()
         self.assertFalse((self.root / "games.json").exists())
@@ -314,7 +315,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
             pl.download_missing_games()
         self.assertFalse((self.root / "games.json").exists())
 
-        self.game_list = FakeResponse(body={"results": [{"GameId": i} for i in IDS]})
+        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS]})
         report = pl.download_missing_games()
         self.assertEqual(len(report["downloaded_game_ids"]), 1230)
         self.assertEqual(json.loads((self.root / "games.json").read_text()), self.game_list.body)

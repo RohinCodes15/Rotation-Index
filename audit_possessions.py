@@ -37,7 +37,7 @@ def main(argv=None):
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True, allow_nan=False))
     else:
-        print("2024-25 regular season: " + ", ".join(
+        print(f"{loader.SEASON} regular season: " + ", ".join(
             f"{name}={report['games_' + name]}" for name in
             ("expected", "cached", "validated", "failed", "missing")))
         print("Inputs: " + ", ".join(f"{k}={v}" for k, v in report["input_counts"].items()))

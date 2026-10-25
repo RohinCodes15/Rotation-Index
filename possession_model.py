@@ -16,13 +16,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import season_config as season
 
 
 BASE = Path(__file__).resolve().parent
 GAME_CACHE = BASE / "data/cache/possessions/games"
 RAW_PBP_CACHE = BASE / "data/cache/possessions/pbpstats/pbp"
 STATUS_FILE = BASE / "data/cache/possessions/status.json"
-EXPECTED_REGULAR_SEASON_GAMES = 1230
+EXPECTED_REGULAR_SEASON_GAMES = len(season.GAMES)
 # Sum-of-squared-errors ridge penalties, shared by offense and defense blocks.
 RIDGE_PENALTY_GRID = (1.0, 10.0, 100.0, 1000.0, 10000.0)
 
@@ -128,6 +129,7 @@ def build_possession_rows(game_data):
     if not game_id:
         raise ValueError("normalized game is missing GameId")
 
+    season.require_metadata(game)
     rows = []
     seen = set()
     for possession in possessions:
@@ -195,6 +197,8 @@ def load_cached_possession_rows(game_cache=GAME_CACHE):
     rows = []
     seen_games = set()
     for path in sorted(game_cache.glob("*.json")):
+        if path.stem not in season.GAMES:
+            continue
         game_data = json.loads(path.read_text())
         game_id = str(game_data.get("game", {}).get("GameId", ""))
         if path.stem != game_id:
@@ -226,12 +230,16 @@ def load_cached_player_names(raw_cache=RAW_PBP_CACHE):
     Names shared by different IDs are allowed. Team events (personId=0) and
     absent names do not create a lookup entry. Descriptions are never parsed.
     """
-    paths = sorted(Path(raw_cache).glob("live_*.json"))
+    paths = sorted(p for p in Path(raw_cache).glob("live_*.json")
+                   if p.stem.removeprefix("live_") in season.GAMES)
     if not paths:
         raise FileNotFoundError(f"no cached raw play-by-play files in {raw_cache}")
     observed = {}
     for path in paths:
-        actions = json.loads(path.read_text())["game"]["actions"]
+        game = json.loads(path.read_text())["game"]
+        if game.get("gameId") != path.stem.removeprefix("live_"):
+            raise ValueError("raw feed identity does not match cache filename")
+        actions = game["actions"]
         if not isinstance(actions, list):
             raise ValueError(f"{path.name}: missing play-by-play actions")
         for event in actions:
@@ -253,7 +261,7 @@ def load_cached_player_names(raw_cache=RAW_PBP_CACHE):
 
 
 def require_complete_season(status_path=STATUS_FILE, *, game_cache=None):
-    """Require a finished, consistent offline audit of all 1,230 season games.
+    """Require a finished offline audit of the exact configured season manifest.
 
     Summary flags alone are insufficient: expected/cached/validated ID sets and
     every per-game outcome must agree, with no missing games or validation errors.
@@ -265,31 +273,35 @@ def require_complete_season(status_path=STATUS_FILE, *, game_cache=None):
         raise IncompleteSeasonError("season cache audit is missing, unreadable, or corrupt") from error
     if not isinstance(status, dict):
         raise IncompleteSeasonError("season cache audit must be an object")
+    required_ids = set(season.GAMES)
+    required_count = len(required_ids)
     expected = status.get("games_expected")
     validated = status.get("games_validated")
     id_sets = []
     for category in ("expected", "cached", "validated"):
         ids = status.get(f"{category}_game_ids")
-        if (not isinstance(ids, list) or len(ids) != EXPECTED_REGULAR_SEASON_GAMES
+        if (not isinstance(ids, list) or len(ids) != required_count
                 or any(not isinstance(gid, str) or len(gid) != 10
-                       or not gid.startswith("00224") or not gid.isdigit() for gid in ids)):
+                       or gid not in required_ids or not gid.isdigit() for gid in ids)):
             break
         id_sets.append(set(ids))
     ids_valid = (len(id_sets) == 3
-                 and len(id_sets[0]) == EXPECTED_REGULAR_SEASON_GAMES
-                 and id_sets[0] == id_sets[1] == id_sets[2])
+                 and len(id_sets[0]) == required_count
+                 and id_sets[0] == id_sets[1] == id_sets[2] == required_ids)
     outcomes = status.get("game_results")
     outcomes_valid = (ids_valid and isinstance(outcomes, dict)
                       and set(outcomes) == id_sets[0]
                       and all(isinstance(result, dict) and result.get("status") == "validated"
                               and not result.get("error") for result in outcomes.values()))
     if not (
-        status.get("complete") is True
+        status.get("season") == season.SEASON
+        and status.get("season_type") == season.SEASON_TYPE
+        and status.get("complete") is True
         and status.get("audit_complete") is True
         and status.get("mode") == "offline_audit"
-        and expected == EXPECTED_REGULAR_SEASON_GAMES
-        and validated == EXPECTED_REGULAR_SEASON_GAMES
-        and status.get("games_cached") == EXPECTED_REGULAR_SEASON_GAMES
+        and expected == required_count
+        and validated == required_count
+        and status.get("games_cached") == required_count
         and status.get("games_failed") == 0
         and status.get("games_missing") == 0
         and status.get("failed_game_ids") == []
@@ -373,6 +385,11 @@ def _input_file_facts(path, *, normalized=False, cache=None):
     except OSError:
         return {"state": "unreadable", "signature": signature}
     facts = {"state": "present", "signature": signature, "sha256": hashlib.sha256(data).hexdigest()}
+    if not normalized:
+        try:
+            facts["game_id"] = json.loads(data)["game"]["gameId"]
+        except (ValueError, KeyError, TypeError, UnicodeError):
+            facts["state"] = "invalid"
     if normalized:
         try:
             saved = json.loads(data)
@@ -406,6 +423,8 @@ def check_game_inputs(game_id, result, raw_root, normalized_root, *, cache=None)
     game metadata, an in-file GameId equal to game_id, and the attested parser
     version. Any other outcome names what is missing, stale, or unverifiable.
     """
+    if game_id not in season.GAMES:
+        return GameInputCheck("unverifiable", f"Game is outside the authoritative {season.SEASON} manifest.")
     lineage = result.get("lineage") if isinstance(result, dict) else None
     if not isinstance(lineage, dict):
         return GameInputCheck("unverifiable", "The audit report has no input record for this game (older audit format).")
@@ -439,6 +458,8 @@ def check_game_inputs(game_id, result, raw_root, normalized_root, *, cache=None)
             return GameInputCheck("missing", f"The {label} has been removed since the audit.", signatures)
         if facts["state"] == "unreadable":
             return GameInputCheck("unverifiable", f"The {label} can no longer be read.", signatures)
+    if raw["state"] == "invalid" or raw.get("game_id") != game_id:
+        return GameInputCheck("unverifiable", "Raw feed is invalid or belongs to a different game or season.", signatures)
     if saved["state"] == "invalid":
         return GameInputCheck("unverifiable", "The normalized file is no longer valid JSON with the expected fields.",
                               signatures)
@@ -564,7 +585,8 @@ def fit_possession_ridge(design=None, penalties=RIDGE_PENALTY_GRID, *,
     """Gate, select by game holdout, refit all possessions, and write summaries.
 
     With no design, read the normalized local cache. Both status and design must
-    cover 1,230 games. No output directories/files are touched until validation,
+    cover the exact configured season manifest. No output directories/files are
+    touched until validation,
     selection, full-data fitting, and serialization have all succeeded.
 
     Outputs are possession_players.csv, possession_model.json, and

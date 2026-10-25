@@ -1,5 +1,24 @@
 # Possession data step
 
+## Current season configuration
+
+The configured season is **2025–26 Regular Season**. The authoritative pbpstats
+manifest is pinned separately at `manifests/2025-26-regular-season.json` (retrieved
+2026-10-24 from `get-games/nba?Season=2025-26&SeasonType=Regular%20Season`). Its
+actual 1,230 game IDs, not a prefix-generated range or audit-declared count, define
+the full-season gate. `season_config.py` owns the configured season and manifest.
+
+Existing production caches have not been migrated or overwritten. A cached
+2024–25 game list or audit cannot certify 2025–26, and `0022400061` is excluded
+from the current manifest. Old raw/normalized leftovers are ignored by current
+model loading; wrong identities inside current files are rejected. Current
+metadata must match the pinned manifest. Missing, stale, unverifiable, or
+wrong-season inputs block fitting/publication and hide dashboard estimates.
+Historical 2024–25 examples and correction fixtures below remain regression
+references, not current-season inputs. The tests explicitly isolate those
+historical configurations; no play-by-play was fetched for this migration.
+
+
 Run with the existing virtual environment (verified with `pbpstats==1.3.11`):
 
 ```sh

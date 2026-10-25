@@ -1,4 +1,4 @@
-"""Download and cache 2024-25 NBA regular-season lineup data, then check it.
+"""Download and cache 2025-26 NBA regular-season lineup data, then check it.
 
 Source: the public pbpstats.com API (no key). The pbpstats Python library itself
 needs stats.nba.com / cdn.nba.com, which did not respond from this machine.
@@ -17,9 +17,10 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+import season_config as season
 
-SEASON = "2024-25"
-SEASON_TYPE = "Regular Season"
+SEASON = season.SEASON
+SEASON_TYPE = season.SEASON_TYPE
 API = "https://api.pbpstats.com"
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -47,11 +48,15 @@ def load_games():
     if not path.exists():
         print("Downloading game list...")
         data = get_json(f"{API}/get-games/nba", {"Season": SEASON, "SeasonType": SEASON_TYPE})
+        season.require_manifest(data["results"])
         path.write_text(json.dumps(data))
-    return json.loads(path.read_text())["results"]
+    games = json.loads(path.read_text())["results"]
+    season.require_manifest(games)
+    return games
 
 
 def load_game_lineups(game_id):
+    season.require_game(game_id)
     path = GAME_DIR / f"{game_id}.json"
     if not path.exists():
         data = get_json(f"{API}/get-game-stats", {"GameId": game_id, "Type": "Lineup"})
@@ -62,6 +67,7 @@ def load_game_lineups(game_id):
 
 def lineup_rows(game, lineup_data):
     """Turn one game's full-game lineup stats into flat rows."""
+    season.require_metadata(game)
     rows = []
     sides = {
         "Home": (game["HomeTeamAbbreviation"], game["AwayTeamAbbreviation"]),

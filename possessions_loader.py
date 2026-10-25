@@ -1,4 +1,4 @@
-"""Fail-closed, resumable 2024-25 possession cache. See POSSESSION_DATA.md."""
+"""Fail-closed, resumable 2025-26 possession cache. See POSSESSION_DATA.md."""
 
 import json
 import hashlib
@@ -11,6 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import requests
+import season_config as season
 from pbpstats.client import Client
 from pbpstats.resources.enhanced_pbp import (
     FieldGoal,
@@ -25,7 +26,7 @@ BASE = Path(__file__).resolve().parent
 ROOT = BASE / "data/cache/possessions"
 RAW = ROOT / "pbpstats"
 NORMALIZED = ROOT / "games"
-SEASON = "2024-25"
+SEASON = season.SEASON
 LINEAGE_SCHEMA_VERSION = 1
 NORMALIZED_SCHEMA_VERSION = 1
 LINEAGE_COMPONENTS = (("possessions", "possessions"), ("game_metadata", "game"),
@@ -129,10 +130,13 @@ def apply_verified_corrections(game_id, events):
 
 
 def normalize(game_info):
+    season.require_metadata(game_info)
     gid = game_info["GameId"]
+    source = json.loads((RAW / "pbp" / f"live_{gid}.json").read_text())["game"]
+    if source["gameId"] != gid:
+        raise ValueError("wrong game id or season in raw feed")
     client = Client({"dir": str(RAW), "Possessions": {"source": "file", "data_provider": "live"}})
     game = client.Game(gid)
-    source = json.loads((RAW / "pbp" / f"live_{gid}.json").read_text())["game"]
     teams = {str(game_info[f"{side}TeamId"]) for side in ("Home", "Away")}
     expected = {str(game_info[f"{side}TeamId"]): game_info[f"{side}Points"] for side in ("Home", "Away")}
     raw_events = source["actions"]
@@ -234,13 +238,8 @@ def normalize(game_info):
 
 
 def listed_game_ids(games):
-    """Sorted IDs of a complete 2024-25 regular-season game list, or ValueError."""
-    ids = [g["GameId"] for g in games]
-    if (len(ids) != 1230 or len(set(ids)) != 1230
-            or any(not isinstance(i, str) or len(i) != 10
-                   or not i.startswith("00224") or not i.isdigit() for i in ids)):
-        raise ValueError("expected 1,230 distinct 2024-25 regular-season games")
-    return sorted(ids)
+    """Require exactly the configured authoritative regular-season manifest IDs."""
+    return season.require_manifest(games)
 
 
 class DownloadError(Exception):
@@ -277,6 +276,8 @@ def live_pbp_problem(game_id, data):
     A structural gate before saving only; normalize() still runs every check
     when --rebuild-all/--offline later read the file.
     """
+    if game_id not in season.GAMES:
+        return "wrong_season_or_unlisted_game"
     game = data.get("game") if isinstance(data, dict) else None
     if not isinstance(game, dict) or game.get("gameId") != game_id:
         return "wrong_or_missing_game_id"
@@ -351,7 +352,15 @@ def download_missing_games():
     for game_id in ids:
         target = RAW / "pbp" / f"live_{game_id}.json"
         if target.exists():
-            report["already_cached"] += 1
+            try:
+                problem = live_pbp_problem(game_id, json.loads(target.read_text()))
+            except (OSError, ValueError, UnicodeError):
+                problem = "invalid_cached_raw"
+            if problem:
+                report["failed_game_ids"].append(game_id)
+                report["failures"][game_id] = f"cached_{problem}"
+            else:
+                report["already_cached"] += 1
             continue
         try:
             data = fetch_json(LIVE_PBP_URL.format(game_id))
@@ -428,6 +437,13 @@ def _audit_lineage(raw_path, normalized_path, *, result=None, raw_before=None):
         lineage["reason"] = "raw file changed during normalization"
         return lineage
     try:
+        season.require_metadata(result["game"])
+        raw_game = json.loads(contents["raw"])["game"]
+        if raw_game.get("gameId") != result["game"]["GameId"]:
+            raise ValueError("raw/normalized game identity mismatch")
+        for row in result["possessions"]:
+            if row.get("game_id") != result["game"]["GameId"]:
+                raise ValueError("possession belongs to a different game")
         for _, field in components:
             result[field]
         if (result['schema_version'] != NORMALIZED_SCHEMA_VERSION
@@ -489,7 +505,7 @@ def audit_cached_season(*, write_status=True):
     status = {
         "season": SEASON, "season_type": "Regular Season", "mode": "offline_audit",
         "source": "cached NBA live play-by-play via pbpstats; cached pbpstats.com game list",
-        "complete": False, "audit_complete": False, "games_expected": 1230,
+        "complete": False, "audit_complete": False, "games_expected": len(season.GAMES),
         "games_cached": 0, "games_validated": 0, "games_failed": 0, "games_missing": 0,
         "expected_game_ids": [], "cached_game_ids": [], "validated_game_ids": [],
         "failed_game_ids": [], "missing_game_ids": [], "validation_errors": {},
@@ -585,7 +601,9 @@ def rebuild_cached_game(game_id, *, dry_run=False):
     status.json and estimate outputs are never touched; rerun --offline afterwards
     so the audit (and so the dashboard and model gate) attests the new file.
     """
+    season.require_game(game_id)
     games = json.loads((ROOT / "games.json").read_text())["results"]
+    listed_game_ids(games)
     info = next((g for g in games if g.get("GameId") == game_id), None)
     if info is None:
         raise ValueError(f"{game_id} is not listed in the cached games.json")
@@ -640,6 +658,7 @@ def rebuild_cached_season(*, dry_run=False):
     game's output. status.json and estimate outputs are never written; rerun --offline.
     """
     games = json.loads((ROOT / "games.json").read_text())["results"]
+    listed_game_ids(games)
     results = []
     for game_id in sorted({g["GameId"] for g in games}):
         try:
