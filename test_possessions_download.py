@@ -62,16 +62,12 @@ class DownloadMissingGamesTests(unittest.TestCase):
         mock = patch.object(pl, "storage_preflight", side_effect=self.check_storage)
         self.preflight = mock.start()
         self.addCleanup(mock.stop)
-        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS]})
         mock = patch.object(pl.requests, "get", side_effect=self.get)
         mock.start()
         self.addCleanup(mock.stop)
 
     def get(self, url, **kwargs):
         self.assertEqual(kwargs.get("timeout"), 30)
-        if url == pl.GAME_LIST_URL:
-            self.calls["games.json"] += 1
-            return self.game_list
         game_id = url.rsplit("_", 1)[1].removesuffix(".json")
         self.assertEqual(url, pl.LIVE_PBP_URL.format(game_id))
         self.calls[game_id] += 1
@@ -87,7 +83,6 @@ class DownloadMissingGamesTests(unittest.TestCase):
 
     # A failing check stopping every request (below) is what proves it runs first.
     def test_failed_or_unknown_storage_check_downloads_nothing(self):
-        self.write_game_list()
         for storage, message in (
             ({"passes_safety_margin": False, "safety_required_bytes": 2_000_000, "available_bytes": 1_000,
               "reason": None}, "insufficient_storage: 2,000,000 bytes required with headroom, 1,000 available"),
@@ -107,15 +102,10 @@ class DownloadMissingGamesTests(unittest.TestCase):
                 self.assertFalse(self.pbp.exists())
                 self.assertFalse((self.root / "download_report.json").exists())
 
-    def write_game_list(self):
-        self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / "games.json").write_text(json.dumps({"results": [pl.season.GAMES[i] for i in IDS]}))
-
     def report(self):
         return json.loads((self.root / "download_report.json").read_text())
 
     def test_downloads_only_missing_games_and_never_replaces_cached_files(self):
-        self.write_game_list()
         self.pbp.mkdir(parents=True)
         cached = {IDS[0]: json.dumps(feed(IDS[0]), indent=2).encode(),
                   IDS[5]: (json.dumps(feed(IDS[5])) + "\n").encode()}
@@ -133,9 +123,8 @@ class DownloadMissingGamesTests(unittest.TestCase):
         self.assertEqual(self.report(), report)
         self.assertEqual(json.loads((self.pbp / f"live_{IDS[1]}.json").read_text()), feed(IDS[1]))
         self.assertEqual(sorted(p.name for p in self.root.iterdir()),
-                         ["download_report.json", "games.json", "pbpstats"])  # no status.json or games/
+                         ["download_report.json", "pbpstats"])  # no status.json, games.json, or games/
         self.assertEqual(list(self.pbp.glob("*.tmp")), [])
-        self.assertEqual(self.calls["games.json"], 0)
 
         # A second run has nothing left to fetch.
         self.calls.clear()
@@ -144,7 +133,6 @@ class DownloadMissingGamesTests(unittest.TestCase):
         self.assertEqual(sum(self.calls.values()), 0)
 
     def test_resume_retries_only_unresolved_games_and_preserves_download_only_files(self):
-        self.write_game_list()
         self.pbp.mkdir(parents=True)
         failed, invalid, later = IDS[1:4]
         unresolved = [failed, invalid]
@@ -158,7 +146,7 @@ class DownloadMissingGamesTests(unittest.TestCase):
 
         def assert_download_only_files(raw_ids):
             directory = self.root.parent.parent
-            expected = {self.root / "games.json", self.root / "download_report.json"}
+            expected = {self.root / "download_report.json"}
             expected.update(self.pbp / f"live_{game_id}.json" for game_id in raw_ids)
             self.assertEqual({p for p in directory.rglob("*") if p.is_file()}, expected)
 
@@ -194,7 +182,6 @@ class DownloadMissingGamesTests(unittest.TestCase):
         assert_download_only_files(IDS)
 
     def test_transient_failures_retry_with_bounded_exponential_backoff(self):
-        self.write_game_list()
         recovers, server_error, times_out, refused = IDS[10], IDS[11], IDS[12], IDS[13]
         self.scripts = {
             recovers: [requests.Timeout(), requests.ConnectionError(), FakeResponse(429), FakeResponse(500),
@@ -264,7 +251,6 @@ class DownloadMissingGamesTests(unittest.TestCase):
             self.assertEqual(errors, [f"{reason}_after_{pl.MAX_ATTEMPTS}_attempts"] * 2)
 
     def test_bad_or_incomplete_responses_are_not_saved_or_retried(self):
-        self.write_game_list()
         cases = {
             IDS[20]: (FakeResponse(404), "http_404"),
             IDS[21]: (FakeResponse(403), "http_403"),
@@ -289,7 +275,6 @@ class DownloadMissingGamesTests(unittest.TestCase):
         self.assertEqual([s for s in self.sleeps if s != 0.15], [])
 
     def test_failed_write_keeps_no_partial_file_and_later_games_continue(self):
-        self.write_game_list()
         real_save, broken = pl.save, IDS[30]
 
         def save(path, data, **kwargs):
@@ -303,25 +288,44 @@ class DownloadMissingGamesTests(unittest.TestCase):
         self.assertFalse((self.pbp / f"live_{broken}.json").exists())
         self.assertIn(IDS[31], report["downloaded_game_ids"])
 
-    def test_game_list_is_validated_before_it_is_cached(self):
-        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS[:-1]]})
-        with self.assertRaisesRegex(ValueError, "expected 1,230 distinct"):
-            pl.download_missing_games()
-        self.assertFalse((self.root / "games.json").exists())
-        self.assertEqual(set(self.calls), {"games.json"})
-
-        self.game_list = FakeResponse(503)
-        with self.assertRaisesRegex(pl.DownloadError, "http_503_after_5_attempts"):
-            pl.download_missing_games()
-        self.assertFalse((self.root / "games.json").exists())
-
-        self.game_list = FakeResponse(body={"results": [pl.season.GAMES[i] for i in IDS]})
+    def test_pinned_manifest_is_the_list_and_old_season_list_is_ignored(self):
+        self.root.mkdir(parents=True)
+        old_list = self.root / "games.json"
+        old_list.write_text(json.dumps({"results": [{"GameId": "0022400061"}]}))
+        original = old_list.read_bytes()
         report = pl.download_missing_games()
-        self.assertEqual(len(report["downloaded_game_ids"]), 1230)
-        self.assertEqual(json.loads((self.root / "games.json").read_text()), self.game_list.body)
+        self.assertEqual(report["downloaded_game_ids"], IDS)
+        self.assertEqual(set(self.calls), set(IDS))  # only live feeds; no game-list request
+        self.assertNotIn("0022400061", report["downloaded_game_ids"])
+        self.assertEqual(old_list.read_bytes(), original)
+
+    def test_interrupted_run_keeps_saved_games_and_resumes_without_partial_files(self):
+        real_write, stop = Path.write_text, IDS[2]
+
+        def write_text(path, text, *args, **kwargs):
+            if path.name == f"live_{stop}.json.tmp":
+                real_write(path, text[: len(text) // 2])  # torn temporary write, then Ctrl-C
+                raise KeyboardInterrupt
+            return real_write(path, text, *args, **kwargs)
+
+        with patch.object(Path, "write_text", write_text), self.assertRaises(KeyboardInterrupt):
+            pl.download_missing_games()
+        self.assertEqual(sorted(p.name for p in self.pbp.glob("*.json")), [f"live_{i}.json" for i in IDS[:2]])
+        self.assertFalse((self.pbp / f"live_{stop}.json").exists())
+        self.assertFalse((self.root / "download_report.json").exists())
+        saved = {p: p.read_bytes() for p in self.pbp.glob("*.json")}
+
+        self.calls.clear()
+        report = pl.download_missing_games()
+        self.assertEqual(report["already_cached"], 2)
+        self.assertEqual(report["downloaded_game_ids"], IDS[2:])
+        self.assertNotIn(IDS[0], self.calls)
+        self.assertEqual(json.loads((self.pbp / f"live_{stop}.json").read_text()), feed(stop))
+        self.assertEqual(list(self.pbp.glob("*.tmp")), [])
+        for path, content in saved.items():
+            self.assertEqual(path.read_bytes(), content)
 
     def test_online_command_reports_and_exits_without_auditing(self):
-        self.write_game_list()
         for scripts, code in (({IDS[0]: [FakeResponse(404)]}, 1), ({}, 0)):
             with self.subTest(code=code):
                 self.scripts = scripts

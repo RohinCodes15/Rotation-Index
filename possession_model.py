@@ -913,7 +913,7 @@ def select_ridge_penalty(design, penalties=RIDGE_PENALTY_GRID, *,
     """
     status = require_complete_season(status_path, game_cache=game_cache)
     if set(design.game_ids.tolist()) != set(status["validated_game_ids"]):
-        raise IncompleteSeasonError("penalty selection requires design data from all 1,230 audited games")
+        raise IncompleteSeasonError(f"penalty selection requires design data from all {EXPECTED_REGULAR_SEASON_GAMES:,} audited games")
     return _select_ridge_penalty(
         design, penalties, tolerance=tolerance, max_iterations=max_iterations,
     )

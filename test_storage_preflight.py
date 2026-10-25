@@ -23,7 +23,6 @@ class StoragePreflightTests(unittest.TestCase):
         self.normalized = self.root / "games"
         self.raw.mkdir(parents=True)
         self.normalized.mkdir()
-        (self.root / "games.json").write_text(json.dumps({"results": [{"GameId": i} for i in IDS]}))
         for name, value in (("ROOT", self.root), ("RAW", self.raw.parent), ("NORMALIZED", self.normalized)):
             self.enterContext(patch.object(pl, name, value))
         self.disk = self.enterContext(patch.object(pl.shutil, "disk_usage", return_value=SimpleNamespace(free=10**9)))
@@ -104,21 +103,16 @@ class StoragePreflightTests(unittest.TestCase):
         self.assertTrue(report["passes_safety_margin"])
         self.assertEqual(self.snapshot(), before)
 
-    def test_bad_or_missing_game_list_fails_without_fallback(self):
-        path = self.root / "games.json"
-        for content in ('{', '{"results": []}', '{}'):
-            with self.subTest(content=content):
-                path.write_text(content)
-                before = self.snapshot()
-                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
-                    pl.cli(["--storage-preflight"])
-                self.assertEqual(result.exception.code, 2)
-                self.assertEqual(self.snapshot(), before)
-        path.unlink()
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
-            pl.cli(["--storage-preflight"])
-        self.assertEqual(result.exception.code, 2)
-        self.assertFalse(path.exists())
+    def test_old_season_files_are_size_samples_but_not_counted_as_cached(self):
+        (self.raw / "live_0022400061.json").write_bytes(b"r" * 300)
+        (self.normalized / "0022400061.json").write_bytes(b"n" * 40)
+        before = self.snapshot()
+        report = pl.storage_preflight()
+        self.assertEqual((report["missing_games"], report["missing_normalized_games"]), (1230, 1230))
+        self.assertEqual((report["raw_max_bytes"], report["normalized_max_bytes"]), (300, 40))
+        self.assertEqual(report["safety_required_bytes"], 2 * 1230 * 340)
+        self.assertTrue(report["passes_safety_margin"])
+        self.assertEqual(self.snapshot(), before)
 
     def test_preflight_cannot_be_combined_with_processing_flags(self):
         before = self.snapshot()

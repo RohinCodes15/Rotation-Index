@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import season_config as season
 
 DATA_DIR = Path(__file__).parent / "data"
 LAMBDAS = [500, 1000, 2000, 4000, 8000, 16000]
@@ -87,6 +88,7 @@ def player_table(lineups, columns, coefs):
 
 def main():
     lineups = pd.read_csv(DATA_DIR / "lineups.csv", dtype={"game_id": str})
+    season.require_manifest([season.require_game(gid) for gid in lineups.game_id.unique()])
     X, y, w, columns = build_matrix(lineups)
     lam, errors = pick_lambda(X, y, w, lineups.game_id.to_numpy())
     coefs = fit_ridge(X, y, w, lam)

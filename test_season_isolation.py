@@ -157,10 +157,11 @@ class SeasonIsolationTests(unittest.TestCase):
                 with patch.object(data_loader, "RAW_DIR", self.root):
                     with self.assertRaises(ValueError):
                         data_loader.load_games()
+                # The possession audit's list is the pinned manifest; a bad cached list is ignored.
                 with patch.object(loader, "normalize", side_effect=AssertionError("must not parse")):
                     status = loader.audit_cached_season(write_status=False)
-                self.assertFalse(status["audit_complete"])
-                self.assertEqual(status["games_expected"], len(self.games))
+                self.assertEqual(status["expected_game_ids"], self.ids)
+                self.assertEqual(status["games_missing"], len(self.games))
                 self.assertEqual(self.snapshot(), before)
         with self.assertRaises(ValueError):
             data_loader.lineup_rows({"GameId": "0022400061"}, {})

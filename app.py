@@ -122,13 +122,9 @@ def possession_audit(status, verification):
     if status.get("season") != season.SEASON:
         status = {"season": season.SEASON, "error": "Saved audit belongs to a different season; run a new offline audit."}
         verification = None
-    try:
-        listed = read_json("cache/possessions/games.json") or {}
-        games = {g["GameId"]: {"date": g.get("Date"),
-                               "matchup": f"{g.get('AwayTeamAbbreviation')} at {g.get('HomeTeamAbbreviation')}"}
-                 for g in listed.get("results", []) if isinstance(g, dict) and "GameId" in g}
-    except (ValueError, AttributeError, TypeError):
-        games = {}
+    games = {gid: {"date": g.get("Date"),
+                   "matchup": f"{g.get('AwayTeamAbbreviation')} at {g.get('HomeTeamAbbreviation')}"}
+             for gid, g in season.GAMES.items()}
 
     def described(game_id, fields):
         return {**fields, "game_id": game_id, **games.get(game_id, {"date": None, "matchup": None})}

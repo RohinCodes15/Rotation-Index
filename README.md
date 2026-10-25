@@ -74,7 +74,7 @@ missing or mismatched outputs are withheld. When neither status exists, it shows
 ## Audit the possession cache offline
 
 Use this local workflow. All commands below use existing cached data and make no
-network requests. Replace `0022500001` with a game ID from the cached season list.
+network requests. Replace `0022500001` with any game ID from the 2025–26 manifest.
 
 1. **Inspect without writing.** View the current cache and input-freshness report:
 
@@ -166,10 +166,10 @@ See [POSSESSION_DATA.md](POSSESSION_DATA.md) for validation and correction detai
 python possessions_loader.py --offline        # full cached-game audit, zero network requests
 ```
 
-The audit reads the cached 2025–26 game list (it must match the pinned manifest), examines every listed game, and continues
-past missing or invalid files. It writes only `data/cache/possessions/status.json`, leaving
-raw play-by-play and normalized game caches untouched. A missing or malformed game list
-cannot be fetched in offline mode. Reports are deterministic for unchanged inputs.
+The audit takes its game list from the pinned 2025–26 manifest (any old cached
+`games.json` is ignored), examines every game, and continues past missing or invalid
+files. It writes only `data/cache/possessions/status.json`, leaving raw play-by-play
+and normalized game caches untouched. Reports are deterministic for unchanged inputs.
 
 | Status field | Meaning |
 | --- | --- |
@@ -198,7 +198,7 @@ dashboard display, and tests. Do not download or repair inputs as part of verifi
 The commands below are separate ingestion tools and require explicit authorization to use.
 
 ```bash
-python possessions_loader.py   # downloads missing raw play-by-play (and the game list) only
+python possessions_loader.py   # downloads missing 2025–26 raw play-by-play only, one game at a time
 python data_loader.py          # legacy loader: can download missing game-list and lineup-total data
 ```
 

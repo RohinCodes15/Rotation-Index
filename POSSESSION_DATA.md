@@ -88,12 +88,11 @@ continues through the entire game list, as described below.
 
 ## Offline season audit
 
-`python possessions_loader.py --offline` reads the existing `games.json` and checks
-every one of its 1,230 distinct 2024–25 regular-season game IDs in sorted order.
+`python possessions_loader.py --offline` checks every one of the 1,230 game IDs in
+the pinned 2025–26 manifest in sorted order; any old cached `games.json` is ignored.
 A missing early game does not prevent processing later cached games. It never
 fetches the game list or play-by-play, and pbpstats is configured with
-`source="file"`. Missing or malformed game lists produce a clear audit error;
-there is no network fallback.
+`source="file"`; there is no network fallback.
 
 The audit writes only `data/cache/possessions/status.json`, using an atomic
 replacement with indented, sorted JSON. It leaves raw responses, normalized game
@@ -103,14 +102,15 @@ that a game passed this audit; consult its current status.
 ## Read-only storage preflight
 
 Run `.venv/bin/python possessions_loader.py --storage-preflight` before downloading.
-It requires the existing local `games.json` and never fetches or writes files.
+It counts the 2025–26 manifest games still missing and never fetches or writes files.
 The JSON report includes available bytes, missing raw and normalized game counts,
 non-empty sample counts, and the largest cached file size of each type. Estimated
 additional space covers all missing raw and normalized files; the safety check
 requires twice that estimate. Exit 0 means sufficient space, 1 means insufficient
 space or an unknown estimate, and 2 means the local inputs could not be inspected.
-Without non-empty samples for a needed file type, the estimate is unknown and the
-check fails. This is an approximation: future games may exceed the sampled sizes,
+Cached files from any season count as size samples (never as cached games), so a
+new season can start from older samples. Without any non-empty sample for a needed
+file type, the estimate is unknown and the check fails. This is an approximation: future games may exceed the sampled sizes,
 and disk space can change after the check. The download command runs this same
 check itself and stops before requesting any game if it fails; the standalone flag
 never starts a download.
@@ -118,16 +118,20 @@ never starts a download.
 ## Downloading missing raw files
 
 The separate network-enabled command `python possessions_loader.py` only acquires
-missing raw play-by-play (and `games.json` if absent, validated before it is saved).
+missing raw play-by-play for the pinned 2025–26 manifest; it never requests a game list.
 It first runs the storage preflight above and stops, requesting no game and writing
 no report, unless that check passes. Then for each listed game it:
 
-- skips games already cached; an existing raw file is never re-downloaded or replaced;
+- downloads sequentially and skips games already cached; an existing raw file is never
+  re-downloaded or replaced, and one that fails validation is reported as `cached_<reason>`;
 - retries timeouts, connection errors and HTTP 429/500/502/503/504 up to 5 attempts,
   waiting 1, 2, 4 and 8 seconds between them; other HTTP errors fail at once;
 - saves the feed atomically only if it parses as JSON for that game ID with actions
   through at least period 4; anything else is not written;
 - records a failure and continues with the next game.
+
+An interrupted run (Ctrl-C, crash) leaves only whole files: the feed being written exists
+only as a `.tmp` file, and rerunning the same command resumes from the first missing game.
 
 It writes `data/cache/possessions/download_report.json` (`downloaded_game_ids`,
 `failed_game_ids`, and `failures` mapping each failed ID to a stable reason such as
@@ -274,7 +278,8 @@ single-season statistical limitations.
 
 Cache locations:
 
-- `data/cache/possessions/games.json`: source season game list.
+- `manifests/2025-26-regular-season.json`: pinned season game list (an old cached
+  `data/cache/possessions/games.json` is no longer read).
 - `data/cache/possessions/pbpstats/pbp/live_<game_id>.json`: original NBA response.
 - `data/cache/possessions/games/<game_id>.json`: validated normalized possessions,
   only written after a whole game passes.

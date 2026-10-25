@@ -192,10 +192,12 @@ class OfflineAuditTests(unittest.TestCase):
                 self.assertEqual(report['input_counts']['missing_raw'], 1229)
                 self.assertEqual(report['game_results'][GAME_ID]['input_state'], state)
 
-    def test_readonly_command_unusable_list(self):
+    def test_readonly_command_without_cached_files_uses_manifest(self):
         code, output = self.readonly_command('--json')
-        self.assertEqual(code, 3)
-        self.assertFalse(json.loads(output)['audit_complete'])
+        self.assertEqual(code, 1)
+        report = json.loads(output)
+        self.assertTrue(report['audit_complete'])
+        self.assertEqual(report['games_missing'], len(pl.season.GAMES))
         self.assertFalse(self.root.exists())
 
     def test_matching_real_cache_has_verified_deterministic_lineage(self):
@@ -360,12 +362,13 @@ class OfflineAuditTests(unittest.TestCase):
         self.assertEqual(stop.exception.code, 1)
         return json.loads((self.root / 'status.json').read_text())
 
-    def test_missing_game_list_records_error_without_downloading(self):
+    def test_missing_game_list_file_is_not_needed_and_nothing_downloads(self):
         status = self.run_cli()
-        self.assertFalse(status['audit_complete'])
+        self.assertTrue(status['audit_complete'])
         self.assertFalse(status['complete'])
-        self.assertIn('missing cached game list', status['error'])
+        self.assertEqual(status['expected_game_ids'], sorted(pl.season.GAMES))
         self.assertFalse(self.raw.exists())
+        self.assertFalse((self.root / 'games.json').exists())
 
     def test_all_missing_games_are_taken_from_existing_list(self):
         self.root.mkdir(parents=True)

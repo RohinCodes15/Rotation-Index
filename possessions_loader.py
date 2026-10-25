@@ -31,7 +31,6 @@ LINEAGE_SCHEMA_VERSION = 1
 NORMALIZED_SCHEMA_VERSION = 1
 LINEAGE_COMPONENTS = (("possessions", "possessions"), ("game_metadata", "game"),
                       ("parser_version", "pbpstats_version"), ("normalized_schema_version", "schema_version"))
-GAME_LIST_URL = "https://api.pbpstats.com/get-games/nba"
 LIVE_PBP_URL = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/playbyplay/playbyplay_{}.json"
 RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 5
@@ -292,7 +291,7 @@ def live_pbp_problem(game_id, data):
 
 def storage_preflight():
     """Read-only estimate: largest cached files per type, with 2x safety headroom."""
-    ids = listed_game_ids(json.loads((ROOT / "games.json").read_text())["results"])
+    ids = sorted(season.GAMES)
 
     def sizes(paths):
         result = []
@@ -309,6 +308,9 @@ def storage_preflight():
     raw = sizes(RAW / "pbp" / f"live_{game_id}.json" for game_id in ids)
     normalized = sizes(NORMALIZED / f"{game_id}.json" for game_id in ids)
     missing_raw, missing_normalized = len(ids) - len(raw), len(ids) - len(normalized)
+    # Any season's cached files are valid size samples (never model inputs), so a new season can start.
+    raw = sizes(sorted((RAW / "pbp").glob("live_*.json")))
+    normalized = sizes(sorted(NORMALIZED.glob("*.json")))
     raw_max, normalized_max = max(raw, default=0), max(normalized, default=0)
     known = not ((missing_raw and not raw_max) or (missing_normalized and not normalized_max))
     estimate = missing_raw * raw_max + missing_normalized * normalized_max if known else None
@@ -332,15 +334,9 @@ def download_missing_games():
     (atomically) only after it parses and passes live_pbp_problem(). One game's
     failure is recorded and the rest continue. Never normalizes, audits, or runs
     the model: status.json and normalized files are not touched. Writes only raw
-    files, games.json if absent, and download_report.json.
+    files and download_report.json. The game list is the pinned season manifest.
     """
-    path = ROOT / "games.json"
-    if not path.exists():
-        listed = fetch_json(GAME_LIST_URL, params={"Season": SEASON, "SeasonType": "Regular Season"},
-                            headers={"User-Agent": "rotation-index/0.1"})
-        listed_game_ids(listed["results"])  # validate before caching
-        save(path, listed)
-    ids = listed_game_ids(json.loads(path.read_text())["results"])
+    ids = sorted(season.GAMES)
     storage = storage_preflight()
     if not storage["passes_safety_margin"]:  # fail closed: no game is requested
         if storage["safety_required_bytes"] is None:
@@ -513,11 +509,8 @@ def audit_cached_season(*, write_status=True):
         "model_eligible_possessions": 0, "flags": {},
         "possession_count_differences": {}, "game_results": {}, "lineage_counts": {},
     }
-    path = ROOT / "games.json"
     try:
-        if not path.is_file():
-            raise FileNotFoundError("--offline: missing cached game list games.json")
-        games = json.loads(path.read_text())["results"]
+        games = list(season.GAMES.values())
         status["expected_game_ids"] = listed_game_ids(games)
     except Exception as error:
         status["error"] = f"{type(error).__name__}: {error}"
@@ -601,12 +594,7 @@ def rebuild_cached_game(game_id, *, dry_run=False):
     status.json and estimate outputs are never touched; rerun --offline afterwards
     so the audit (and so the dashboard and model gate) attests the new file.
     """
-    season.require_game(game_id)
-    games = json.loads((ROOT / "games.json").read_text())["results"]
-    listed_game_ids(games)
-    info = next((g for g in games if g.get("GameId") == game_id), None)
-    if info is None:
-        raise ValueError(f"{game_id} is not listed in the cached games.json")
+    info = season.require_game(game_id)
     raw_path = RAW / "pbp" / f"live_{game_id}.json"
     target = NORMALIZED / f"{game_id}.json"
     report = {"game_id": game_id, "dry_run": dry_run, "written": False}
@@ -657,10 +645,8 @@ def rebuild_cached_season(*, dry_run=False):
     Each game stages and replaces its own file, so one failure cannot touch another
     game's output. status.json and estimate outputs are never written; rerun --offline.
     """
-    games = json.loads((ROOT / "games.json").read_text())["results"]
-    listed_game_ids(games)
     results = []
-    for game_id in sorted({g["GameId"] for g in games}):
+    for game_id in sorted(season.GAMES):
         try:
             results.append(rebuild_cached_game(game_id, dry_run=dry_run))
         except Exception as error:  # isolate: record and continue with the next game
