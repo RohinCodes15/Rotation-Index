@@ -35,6 +35,9 @@
     --good-line: #bfe3cf;
     --wait-line: #f0d9a2;
     --bad-line: #f5c2bd;
+    /* Lighter whole-panel tints for notice sections */
+    --good-tint: #f4fbf7;
+    --wait-tint: #fffaf0;
 
     /* Type */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -169,6 +172,9 @@ code {
     --on-navy-dim: #9fb0cf;
     --navy-panel: #102a5a;
     --hairline: rgba(255, 255, 255, 0.16);
+    --on-navy-good: #4cc38a;
+    --on-navy-wait: #e8b04b;
+    --on-navy-bad: #f07167;
 
     position: relative;
     display: grid;
@@ -310,9 +316,9 @@ code {
     line-height: 1.4;
 }
 
-.scoreboard-ok { border-top-color: #4cc38a; }
-.scoreboard-warn { border-top-color: #e8b04b; }
-.scoreboard-bad { border-top-color: #f07167; }
+.scoreboard-ok { border-top-color: var(--on-navy-good); }
+.scoreboard-warn { border-top-color: var(--on-navy-wait); }
+.scoreboard-bad { border-top-color: var(--on-navy-bad); }
 .scoreboard-muted { border-top-color: var(--on-navy-dim); }
 
 @media (max-width: 860px) {
@@ -380,15 +386,12 @@ main > section.notice {
 }
 
 main > section.notice-warn {
+    background: var(--wait-tint);
     border-left: 4px solid var(--wait);
 }
 
-main > section.notice-warn {
-    background: #fffaf0;
-}
-
 main > section.notice-ok {
-    background: #f4fbf7;
+    background: var(--good-tint);
     border-left-color: var(--good);
 }
 
