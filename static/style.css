@@ -68,7 +68,8 @@
     --s7: 48px;
 
     /* Widths, shape and depth */
-    --page-width: 1200px;
+    --page-width: 1152px;
+    --gutter: var(--s5);
     --measure: 75ch;
     --radius-sm: 4px;
     --radius: 8px;
@@ -91,14 +92,19 @@ body {
     text-rendering: optimizeLegibility;
 }
 
+/* Page shell: the banner and main share one centered width with a fixed gutter. */
+.masthead,
+main {
+    width: min(100% - 2 * var(--gutter), var(--page-width));
+    margin-inline: auto;
+}
+
 /* Page grid: one readable column of panels with a shared gap. */
 main {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--s5);
-    max-width: var(--page-width);
-    margin: 0 auto;
-    padding: var(--s5) var(--s5) var(--s7);
+    padding: var(--s5) 0 var(--s7);
 }
 
 /* Typography hierarchy */
@@ -186,6 +192,7 @@ code {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
     gap: var(--s5) var(--s6);
+    margin-top: var(--s5);
     padding: var(--s6) var(--s6) var(--s5);
     overflow: hidden;
     color: var(--white);
@@ -219,11 +226,13 @@ code {
     overflow-wrap: anywhere;
 }
 
-.masthead-kicker {
+/* Season line: red tick, the season as a bold figure, a hairline, then the season type in caps. */
+.masthead-season {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--s2);
-    margin: 0 0 var(--s2);
+    gap: var(--s1) var(--s3);
+    margin: 0 0 var(--s3);
     color: var(--on-navy);
     font-size: var(--text-xs);
     font-weight: 700;
@@ -231,12 +240,22 @@ code {
     text-transform: uppercase;
 }
 
-.masthead-kicker::before {
+.masthead-season::before {
     content: "";
     width: 20px;
     height: 3px;
     background: var(--red-600);
     border-radius: var(--radius-pill);
+}
+
+.masthead-season strong {
+    padding-right: var(--s3);
+    color: var(--white);
+    border-right: 1px solid var(--hairline);
+    font-size: var(--text-md);
+    font-weight: 800;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
 }
 
 .masthead h1 {
@@ -1093,11 +1112,12 @@ summary:hover {
     /* Body text steps up to 16px on phones. */
     :root {
         --text-base: 16px;
+        --gutter: var(--s4);
     }
 
     main {
         gap: var(--s4);
-        padding: var(--s4) var(--s4) var(--s6);
+        padding: var(--s4) 0 var(--s6);
     }
 
     main > section {
@@ -1105,6 +1125,7 @@ summary:hover {
     }
 
     .masthead {
+        margin-top: var(--s4);
         padding: var(--s5) var(--s4) var(--s4);
     }
 

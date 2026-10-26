@@ -7,59 +7,59 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <main>
-        {# Header badge mirrors the notice/estimate branches below; it adds no new state. #}
-        {% if status %}{% set badge = ("muted", "Lineup-total data · " ~ status.games_used ~ " of " ~ status.games_in_season ~ " games") %}
-        {% elif not audit %}{% set badge = ("muted", "No data loaded") %}
-        {% elif not audit.ready and audit.raw_complete %}{% set badge = ("warn", "Estimates hidden · inputs changed since audit") %}
-        {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
-        {% elif possession_model and possession_players is not none %}{% set badge = ("ok", "Estimates shown · all " ~ "{:,}".format(audit.expected) ~ " games validated") %}
-        {% else %}{% set badge = ("warn", "Estimates hidden · no matching outputs") %}{% endif %}
-        {# Header facts come from the loaded report; the season fallback is the configured season. #}
-        {% set src = status or possession_status or {} %}
-        {% set season = (src.season or "2025-26")|replace("-", "–") %}
-        {% set season_type = src.season_type or "Regular Season" %}
-        {% macro count(value) %}{{ "{:,}".format(value) if value is number else "–" }}{% endmacro %}
-        {# Signed value plus a bar from zero; width is |value| against the largest |value| shown in the table. #}
-        {% macro impact(value, scale, net=false) %}<td class="impact{{ ' net' if net }} {{ 'pos' if value > 0 else 'neg' }}"><span class="impact-value">{{ "%+.2f"|format(value) }}</span><span class="bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(50 * value|abs / (scale or 1)) }}%"></span></span></td>{% endmacro %}
-        {# Diagnostics error cell; the lower error in each row is marked in text, not only by weight. #}
-        {% macro error_cell(value, other) %}<td{% if value < other %} class="lower"{% endif %}>{{ "%.4f"|format(value) }}{% if value < other %} <span class="tag">lower</span>{% endif %}</td>{% endmacro %}
-        {# Model cell mirrors the overview's model-status branches. #}
-        {% if status %}{% set model_state = "Lineup total" %}
-        {% elif not audit %}{% set model_state = "No data" %}
-        {% elif not audit.ready %}{% set model_state = "Locked" %}
-        {% elif possession_model and possession_players is not none %}{% set model_state = "Available" %}
-        {% else %}{% set model_state = "Awaiting" %}{% endif %}
-        <header class="masthead">
-            <svg class="masthead-court" viewBox="0 0 470 500" aria-hidden="true" focusable="false">
-                <g fill="none" stroke="currentColor" stroke-width="3">
-                    <rect x="1.5" y="1.5" width="467" height="497"/>
-                    <circle cx="235" cy="1.5" r="60"/>
-                    <rect x="155" y="310" width="160" height="188.5"/>
-                    <circle cx="235" cy="310" r="60"/>
-                    <path d="M30 498.5V358a205 205 0 0 1 410 0v140.5"/>
-                    <circle cx="235" cy="446" r="7.5"/>
-                </g>
-            </svg>
-            <div class="masthead-brand">
-                <p class="masthead-kicker">NBA player impact</p>
-                <h1>Rotation Index</h1>
-                <p class="subtitle">{{ season }} {{ season_type }}</p>
-                <span class="badge badge-{{ badge[0] }}">{{ badge[1] }}</span>
+    {# Header badge mirrors the notice/estimate branches below; it adds no new state. #}
+    {% if status %}{% set badge = ("muted", "Lineup-total data · " ~ status.games_used ~ " of " ~ status.games_in_season ~ " games") %}
+    {% elif not audit %}{% set badge = ("muted", "No data loaded") %}
+    {% elif not audit.ready and audit.raw_complete %}{% set badge = ("warn", "Estimates hidden · inputs changed since audit") %}
+    {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
+    {% elif possession_model and possession_players is not none %}{% set badge = ("ok", "Estimates shown · all " ~ "{:,}".format(audit.expected) ~ " games validated") %}
+    {% else %}{% set badge = ("warn", "Estimates hidden · no matching outputs") %}{% endif %}
+    {# Header facts come from the loaded report; the season fallback is the configured season. #}
+    {% set src = status or possession_status or {} %}
+    {% set season = (src.season or "2025-26")|replace("-", "–") %}
+    {% set season_type = src.season_type or "Regular Season" %}
+    {% macro count(value) %}{{ "{:,}".format(value) if value is number else "–" }}{% endmacro %}
+    {# Signed value plus a bar from zero; width is |value| against the largest |value| shown in the table. #}
+    {% macro impact(value, scale, net=false) %}<td class="impact{{ ' net' if net }} {{ 'pos' if value > 0 else 'neg' }}"><span class="impact-value">{{ "%+.2f"|format(value) }}</span><span class="bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(50 * value|abs / (scale or 1)) }}%"></span></span></td>{% endmacro %}
+    {# Diagnostics error cell; the lower error in each row is marked in text, not only by weight. #}
+    {% macro error_cell(value, other) %}<td{% if value < other %} class="lower"{% endif %}>{{ "%.4f"|format(value) }}{% if value < other %} <span class="tag">lower</span>{% endif %}</td>{% endmacro %}
+    {# Model cell mirrors the overview's model-status branches. #}
+    {% if status %}{% set model_state = "Lineup total" %}
+    {% elif not audit %}{% set model_state = "No data" %}
+    {% elif not audit.ready %}{% set model_state = "Locked" %}
+    {% elif possession_model and possession_players is not none %}{% set model_state = "Available" %}
+    {% else %}{% set model_state = "Awaiting" %}{% endif %}
+    <header class="masthead">
+        <svg class="masthead-court" viewBox="0 0 470 500" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" stroke-width="3">
+                <rect x="1.5" y="1.5" width="467" height="497"/>
+                <circle cx="235" cy="1.5" r="60"/>
+                <rect x="155" y="310" width="160" height="188.5"/>
+                <circle cx="235" cy="310" r="60"/>
+                <path d="M30 498.5V358a205 205 0 0 1 410 0v140.5"/>
+                <circle cx="235" cy="446" r="7.5"/>
+            </g>
+        </svg>
+        <div class="masthead-brand">
+            <p class="masthead-season"><strong>{{ season }}</strong> {{ season_type }}</p>
+            <h1>Rotation Index</h1>
+            <p class="subtitle">Ridge-adjusted NBA player impact per 100 possessions</p>
+            <span class="badge badge-{{ badge[0] }}">{{ badge[1] }}</span>
+        </div>
+        <dl class="scoreboard" aria-label="Season status">
+            <div class="scoreboard-cell">
+                <dt>{{ "Games used" if status else "Games validated" }}</dt>
+                <dd>{% if status %}{{ count(status.games_used) }}<span class="scoreboard-of">/ {{ count(status.games_in_season) }}</span>
+                    {%- elif audit %}{{ count(audit.counts.validated) }}<span class="scoreboard-of">/ {{ count(audit.expected) }}</span>
+                    {%- else %}–{% endif %}</dd>
             </div>
-            <dl class="scoreboard" aria-label="Season status">
-                <div class="scoreboard-cell">
-                    <dt>{{ "Games used" if status else "Games validated" }}</dt>
-                    <dd>{% if status %}{{ count(status.games_used) }}<span class="scoreboard-of">/ {{ count(status.games_in_season) }}</span>
-                        {%- elif audit %}{{ count(audit.counts.validated) }}<span class="scoreboard-of">/ {{ count(audit.expected) }}</span>
-                        {%- else %}–{% endif %}</dd>
-                </div>
-                <div class="scoreboard-cell scoreboard-model scoreboard-{{ badge[0] }}">
-                    <dt>Model</dt>
-                    <dd>{{ model_state }}</dd>
-                </div>
-            </dl>
-        </header>
+            <div class="scoreboard-cell scoreboard-model scoreboard-{{ badge[0] }}">
+                <dt>Model</dt>
+                <dd>{{ model_state }}</dd>
+            </div>
+        </dl>
+    </header>
+    <main>
 
         {% if audit %}
         {% macro n(value) %}{{ "{:,}".format(value) if value is number else "not recorded" }}{% endmacro %}
