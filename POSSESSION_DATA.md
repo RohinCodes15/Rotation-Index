@@ -60,7 +60,14 @@ OT1, recorded in the same fixture with screenshots in `fixtures/evidence/`, show
 MIN 5:00 (the whole period) for Aldama (MEM) and Grimes (PHI) in `0022500458`,
 both teams' full five, Hauser (BOS) in `0022500637` and Washington (DAL) in
 `0022501029`; for `0022500521` it shows "NO BOX SCORE DATA AVAILABLE", so BKN is
-unresolved. No correction applies this evidence yet; all four games still fail.
+unresolved. `VERIFIED_PERIOD_STARTERS` in `possessions_loader.py` applies only those
+four resolved entries: each matches the exact game, period 5, team and player (who
+the feed must place on that team), and adds the player only when pbpstats found
+exactly the recorded four starters for that team, cross-checked against the OT1
+table; the five-player check still applies. There is no general "5:00 means
+starter" rule, and Pritchard's `4:60` display is not used. Locally `0022500458`,
+`0022500637` and `0022501029` now normalize; `0022500521` (BKN) has no
+correction and still fails. Production audit not rerun since this change.
 Original diagnosis:
 
 - `0022500147`: not a parser bug. Team totals agree (DET 122, DAL 110) and the

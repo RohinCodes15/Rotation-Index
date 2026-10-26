@@ -16,7 +16,7 @@ REAL_PBP = Path(__file__).parent / "data/cache/possessions/pbpstats/pbp"
 HOME, AWAY = 1, 2
 BLOCKERS = ("0022500147", "0022500458", "0022500521", "0022500550",
             "0022500637", "0022501029", "0022501044")
-UNRESOLVED = ("0022500458", "0022500521", "0022500637", "0022501029")
+UNRESOLVED = ("0022500521",)  # BKN OT1: official box score shows no data
 EVIDENCE = json.loads((Path(__file__).parent / "fixtures/official_evidence_2025-26.json").read_text())["games"]
 
 
@@ -138,22 +138,62 @@ class RealOvertimeGamesTests(unittest.TestCase):
                 pl.normalize(season.GAMES[gid])
             self.assertIs(LiveStartOfPeriod.get_period_starters, self.original)
 
-    def test_unevidenced_ot_starters_keep_games_failed(self):
-        # No OT-starter correction is applied yet, whatever the fixture records, and
-        # carrying a player across the break is inference, so these games fail closed.
-        unresolved = [g for g in EVIDENCE if g["fact"] == "period_starter"]
-        self.assertEqual({g["game_id"] for g in unresolved}, set(UNRESOLVED))
-        self.assertFalse(hasattr(pl, "VERIFIED_PERIOD_STARTERS"))
-        for g in unresolved:
-            feed = json.loads((pl.RAW / "pbp" / f"live_{g['game_id']}.json").read_text())["game"]["actions"]
-            named = {v for e in feed if e["period"] == g["period"] for k, v in e.items() if k.endswith("PersonId")}
-            self.assertNotIn(g["person_id"], named)
-        for gid in UNRESOLVED:
-            with self.subTest(gid=gid), self.assertRaises(InvalidNumberOfStartersException):
-                pl.normalize(season.GAMES[gid])
-            self.assertIs(LiveStartOfPeriod.get_period_starters, self.original)
+    def test_verified_ot_starters_match_the_resolved_fixture_entries(self):
+        starters = {(g["game_id"], g["period"], g["team_id"]): g for g in EVIDENCE if g["fact"] == "period_starter"}
+        resolved = {k for k, g in starters.items() if g["status"] == "resolved"}
+        self.assertEqual(set(pl.VERIFIED_PERIOD_STARTERS), resolved)
+        self.assertNotIn(("0022500521", 5, 1610612751), pl.VERIFIED_PERIOD_STARTERS)  # BKN unresolved
+        for key, entry in pl.VERIFIED_PERIOD_STARTERS.items():
+            with self.subTest(key=key):
+                g = starters[key]
+                rows = {pid: minutes for _, pid, minutes in g["supporting"]["visible_rows_OT1"] if pid}
+                self.assertEqual(entry["player"], g["person_id"])
+                self.assertEqual(rows[entry["player"]], "5:00")  # never a "4:60" display
+                self.assertNotIn(entry["player"], entry["parser_four"])
+                self.assertEqual(len(set(entry["parser_four"])), 4)
+                # Every parser starter is on the official OT1 table: named there, or one
+                # of the rows whose player id the fixture did not record.
+                unnamed_rows = sum(pid is None for _, pid, _ in g["supporting"]["visible_rows_OT1"])
+                self.assertLessEqual(len(set(entry["parser_four"]) - set(rows)), unnamed_rows)
+                if g["period_starters"]:  # full official five: four plus the player, exactly
+                    self.assertEqual(sorted([*entry["parser_four"], entry["player"]]), sorted(g["period_starters"]))
 
-    def test_only_unresolved_ot_games_remain_blockers(self):
+    def test_verified_ot_starter_completes_exactly_that_team(self):
+        for (gid, period, team), entry in pl.VERIFIED_PERIOD_STARTERS.items():
+            with self.subTest(gid=gid, team=team):
+                result = pl.normalize(season.GAMES[gid])
+                opening = next(r for r in result["possessions"] if r["period"] == period and r["model_eligible"])
+                side = "offense_players" if opening["offense_team_id"] == str(team) else "defense_players"
+                self.assertEqual(sorted(opening[side]), sorted([*entry["parser_four"], entry["player"]]))
+                for row in result["possessions"]:
+                    if row["model_eligible"]:
+                        self.assertEqual(len(set(row["offense_players"])), 5)
+                        self.assertEqual(len(set(row["defense_players"])), 5)
+                self.assertEqual(result["applied_corrections"], [])
+                self.assertIs(LiveStartOfPeriod.get_period_starters, self.original)
+
+    def test_ot_games_stay_failed_without_exact_evidence(self):
+        table = pl.VERIFIED_PERIOD_STARTERS
+        for (gid, period, team), entry in table.items():
+            others = {k: v for k, v in table.items() if k != (gid, period, team)}
+            other_team = next(t for t in (int(season.GAMES[gid]["HomeTeamId"]), int(season.GAMES[gid]["AwayTeamId"]))
+                              if t != team)
+            cases = {
+                "missing": others,
+                "period": {**others, (gid, 4, team): entry},
+                "game": {**others, ("0022500001", period, team): entry},
+                "team": {**others, (gid, period, other_team): entry},
+                "player": {**others, (gid, period, team): {**entry, "player": 1628983}},  # not on this team
+                "parser_four": {**others, (gid, period, team): {**entry, "parser_four": (*entry["parser_four"][:3], 1)}},
+            }
+            for name, patched in cases.items():
+                with self.subTest(gid=gid, team=team, case=name), \
+                        patch.object(pl, "VERIFIED_PERIOD_STARTERS", patched), \
+                        self.assertRaises(InvalidNumberOfStartersException):
+                    pl.normalize(season.GAMES[gid])
+                self.assertIs(LiveStartOfPeriod.get_period_starters, self.original)
+
+    def test_only_unresolved_bkn_game_remains_a_blocker(self):
         failed = []
         for gid in BLOCKERS:
             try:

@@ -63,6 +63,20 @@ VERIFIED_CORRECTIONS = (
 
 _LIVE_BOXSCORE = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/boxscore/boxscore_{}.json"
 
+# Official OT1 box-score evidence (fixtures/official_evidence_2025-26.json: the player's
+# OT1 MIN is 5:00) for a starter no period-5 action names. Each entry completes only
+# that exact game/period/team, and only when pbpstats found exactly `parser_four`.
+VERIFIED_PERIOD_STARTERS = {
+    ("0022500458", 5, 1610612763): {"player": 1630583,  # Santi Aldama, MEM
+                                    "parser_four": (1628991, 1629630, 1642377, 1642907)},
+    ("0022500458", 5, 1610612755): {"player": 1629656,  # Quentin Grimes, PHI
+                                    "parser_four": (202331, 203954, 1630178, 1642845)},
+    ("0022500637", 5, 1610612738): {"player": 1630573,  # Sam Hauser, BOS
+                                    "parser_four": (1627759, 1629014, 1630202, 1630568)},
+    ("0022501029", 5, 1610612742): {"player": 1629023,  # P.J. Washington, DAL
+                                    "parser_four": (1629655, 1630230, 1642843, 1642948)},
+}
+
 # Official home team where the pinned manifest's sides are reversed (evidence:
 # fixtures/official_evidence_2025-26.json). Guarded by the exact manifest teams it
 # corrects; the manifest itself stays untouched.
@@ -174,8 +188,9 @@ def _opening_tip_players(raw_events):
     return tips
 
 
-def _starters_with_opening_tip(tips, game_id):
-    """pbpstats period starters, completed only by explicit opening-tip evidence."""
+def _starters_with_opening_tip(tips, game_id, verified=None):
+    """pbpstats period starters, completed only by explicit opening-tip evidence or a
+    verified {(period, team): {"player", "parser_four"}} entry for this game."""
     original = LiveStartOfPeriod.get_period_starters
 
     def get_period_starters(self, file_directory=None, ignore_missing_starters=False):
@@ -188,6 +203,9 @@ def _starters_with_opening_tip(tips, game_id):
             for pid, team in tips.get(self.period, {}).items():
                 if team in starters and pid not in starters[team]:
                     starters[team] = [*starters[team], pid]
+            for (period, team), entry in (verified or {}).items():
+                if period == self.period and sorted(starters.get(team, ())) == sorted(entry["parser_four"]):
+                    starters[team] = [*starters[team], entry["player"]]
             players = [pid for team in starters.values() for pid in team]
             if (len(starters) != 2 or any(len(set(p)) != 5 or len(p) != 5 for p in starters.values())
                     or len(set(players)) != 10 or any(type(pid) is not int or pid <= 0 for pid in players)):
@@ -206,9 +224,12 @@ def normalize(game_info):
     client = Client({"dir": str(RAW), "Possessions": {"source": "file", "data_provider": "live"}})
     # The parser hook is global; serialize its use and bind its evidence to this game.
     evidence = _opening_tip_players(source["actions"])
+    rostered = {(e.get("personId"), e.get("teamId")) for e in source["actions"]}
+    verified = {(period, team): entry for (game_id, period, team), entry in VERIFIED_PERIOD_STARTERS.items()
+                if game_id == gid and (entry["player"], team) in rostered}  # the feed must place them on this team
     with _STARTERS_LOCK:
         original_starters = LiveStartOfPeriod.get_period_starters
-        LiveStartOfPeriod.get_period_starters = _starters_with_opening_tip(evidence, gid)
+        LiveStartOfPeriod.get_period_starters = _starters_with_opening_tip(evidence, gid, verified)
         try:
             game = client.Game(gid)
         finally:
