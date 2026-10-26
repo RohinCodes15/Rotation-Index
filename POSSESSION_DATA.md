@@ -125,6 +125,23 @@ comparison changed only that normalized game and `status.json`: raw play-by-play
 the manifest and all estimate and diagnostics outputs are byte-identical, and none
 were created. The model has not been fit.
 
+**Full-season fit, 2026-10-25:** `require_complete_season()` passed (1,230 of
+1,230 validated, 0 failed, 0 missing, lineage and freshness current), then
+`fit_possession_ridge()` wrote `data/possession_players.csv`,
+`data/possession_model.json` and `data/possession_diagnostics.json` (none existed
+before; all git-ignored). 1,230 games, 233,198 eligible possessions, 582 players;
+selected penalty 1000 from the game holdout (984 training, 246 holdout games).
+Holdout RMSE 1.1949 points per possession vs 1.1959 for the training-mean
+baseline (MAE 1.1346 vs 1.1378), a small improvement; net-effect correlation
+across penalties 1 and 10,000 is 0.344. Every estimate is finite, player IDs are
+unique and net equals offense plus defense. A repeat fit into a scratch directory
+produced a byte-identical CSV and diagnostics, and identical model metadata apart
+from `created_at`. Offline, the dashboard returns HTTP 200 with model status
+Available and possession-level estimates shown, and `/diagnostics.json` returns
+HTTP 200 matching the saved diagnostics. Full test suite: 154 tests passed. The
+dashboard's "no corrections recorded" covers only `VERIFIED_CORRECTIONS`; the
+home-team, opening-tip and gamebook/OT1 starter fixes above are not listed there.
+
 A separate three-game, test-only 2025–26 manifest exercises successful gated
 publication entirely in a temporary directory. Its dashboard displays possession
 estimates and exports matching 2025–26 diagnostics. Repeated fits produce identical
