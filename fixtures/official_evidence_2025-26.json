@@ -133,9 +133,13 @@
       "period_starters": null,
       "supporting": {
         "visible_rows_OT1": [],
-        "screenshot": "fixtures/evidence/0022500521_OT1_no_data.jpg"
+        "screenshot": "fixtures/evidence/0022500521_OT1_no_data.jpg",
+        "attempted_sources": [
+          "https://www.nba.com/game/0022500521/box-score?period=OT1",
+          "https://www.nba.com/game/0022500521/box-score?range=28800-28900"
+        ]
       },
-      "unresolved_reason": "NBA.com OT1 box score shows 'NO BOX SCORE DATA AVAILABLE' (retried; All Periods loads). No official period-5 lineup."
+      "unresolved_reason": "NBA.com OT1 box score shows 'NO BOX SCORE DATA AVAILABLE' (retried 2026-10-25; All Periods loads). The box score Range Filter (range=28800-28900, first 10 s of OT1) could not be applied: the slider did not respond and loading that URL directly shows 'Content Unavailable'. No official source viewed exposes the period-5 lineup."
     },
     {
       "game_id": "0022500637",

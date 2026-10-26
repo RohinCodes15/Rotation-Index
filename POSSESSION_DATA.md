@@ -67,7 +67,7 @@ exactly the recorded four starters for that team, cross-checked against the OT1
 table; the five-player check still applies. There is no general "5:00 means
 starter" rule, and Pritchard's `4:60` display is not used. Locally `0022500458`,
 `0022500637` and `0022501029` now normalize; `0022500521` (BKN) has no
-correction and still fails. Production audit not rerun since this change.
+correction and still fails. Audited in the second rerun below.
 Original diagnosis:
 
 - `0022500147`: not a parser bug. Team totals agree (DET 122, DAL 110) and the
@@ -98,6 +98,18 @@ per side and no correction was applied. A before/after SHA-256 comparison of eve
 project file found changes only to those three normalized games and
 `status.json`: raw play-by-play, the manifest and all estimate and diagnostics
 outputs are byte-identical, and none were created.
+
+**Second rebuild and offline audit rerun, 2026-10-25 (after the OT1 corrections):**
+`--rebuild-all` (rebuilt 3, unchanged 1,226, failed 1) then `--offline`, local
+files only, no download, no fit. 1,229 of 1,230 games validated, 1 failed, 0
+missing; 247,954 possession segments, 245,919 counted, 233,002 model-eligible.
+Only `0022500521` (BKN, no official OT1 data) failed. `complete` is false, so
+the model gate is still **not ready**. Rebuilt `0022500458` (MEM 136, PHI 139),
+`0022500637` (BOS 130, BKN 126) and `0022501029` (LAC 138, DAL 131) match their
+official finals, apply no other correction, and have five distinct players per
+side on every eligible possession. A before/after SHA-256 comparison changed only
+those three normalized games and `status.json`: raw play-by-play, the manifest
+and all estimate and diagnostics outputs are byte-identical, and none were created.
 
 A separate three-game, test-only 2025–26 manifest exercises successful gated
 publication entirely in a temporary directory. Its dashboard displays possession
