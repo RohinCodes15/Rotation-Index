@@ -45,10 +45,6 @@
             </div>
             <dl class="scoreboard" aria-label="Season status">
                 <div class="scoreboard-cell">
-                    <dt>Season</dt>
-                    <dd>{{ season }}</dd>
-                </div>
-                <div class="scoreboard-cell">
                     <dt>{{ "Games used" if status else "Games validated" }}</dt>
                     <dd>{% if status %}{{ count(status.games_used) }}<span class="scoreboard-of">/ {{ count(status.games_in_season) }}</span>
                         {%- elif audit %}{{ count(audit.counts.validated) }}<span class="scoreboard-of">/ {{ count(audit.expected) }}</span>

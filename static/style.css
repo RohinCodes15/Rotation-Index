@@ -268,7 +268,7 @@ code {
 /* Scoreboard: label over a large tabular figure, cells split by hairlines. */
 .scoreboard {
     display: grid;
-    grid-template-columns: repeat(3, auto);
+    grid-template-columns: repeat(2, auto);
     gap: 1px;
     margin: 0;
     overflow: hidden;
@@ -328,7 +328,7 @@ code {
     }
 
     .scoreboard {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .masthead-court {
