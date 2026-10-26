@@ -38,17 +38,22 @@
     /* Lighter whole-panel tints for notice sections */
     --good-tint: #f4fbf7;
     --wait-tint: #fffaf0;
+    /* Empty progress track ("not cached") and a translucent fill for nested blocks on tints */
+    --track: #e6ebf2;
+    --surface-veil: rgba(255, 255, 255, 0.65);
 
-    /* Type */
+    /* Type: one scale with a 12px floor; the display size scales with the viewport. */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --text-xs: 12px;
     --text-sm: 13px;
+    --text-ui: 14px;
     --text-base: 15px;
     --text-md: 17px;
     --text-lg: 20px;
-    --text-xl: 28px;
-    --text-2xl: 32px;
+    --text-xl: 24px;
+    --text-2xl: 28px;
+    --text-display: clamp(34px, 4vw + 18px, 44px);
     --leading-tight: 1.25;
     --leading-body: 1.55;
     --tracking-caps: 0.06em;
@@ -62,11 +67,11 @@
     --s6: 32px;
     --s7: 48px;
 
-    /* Shape and depth */
+    /* Widths, shape and depth */
     --page-width: 1200px;
+    --measure: 75ch;
     --radius-sm: 4px;
     --radius: 8px;
-    --radius-lg: 12px;
     --radius-pill: 999px;
     --shadow-sm: 0 1px 2px rgba(11, 31, 69, 0.06);
     --shadow: 0 1px 3px rgba(11, 31, 69, 0.08), 0 4px 12px rgba(11, 31, 69, 0.05);
@@ -127,7 +132,7 @@ h3 {
 }
 
 p {
-    max-width: 75ch;
+    max-width: var(--measure);
     margin: 0 0 var(--s3);
     color: var(--muted);
 }
@@ -236,7 +241,7 @@ code {
 
 .masthead h1 {
     color: var(--white);
-    font-size: 44px;
+    font-size: var(--text-display);
     font-weight: 800;
     line-height: 1.02;
     letter-spacing: -0.03em;
@@ -287,7 +292,7 @@ code {
 
 .scoreboard dt {
     color: var(--on-navy-dim);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -297,7 +302,7 @@ code {
 .scoreboard dd {
     margin: var(--s1) 0 0;
     color: var(--white);
-    font-size: var(--text-xl);
+    font-size: var(--text-2xl);
     font-weight: 700;
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
@@ -416,6 +421,32 @@ main > section.notice-ok {
     color: var(--text);
 }
 
+.callout h3 {
+    margin-bottom: var(--s2);
+}
+
+.callout ul {
+    margin-bottom: var(--s2);
+}
+
+.callout details {
+    background: var(--surface-veil);
+    border-color: var(--state-line);
+}
+
+/* Eyebrow label: a small uppercase caption above a value, column or group. */
+thead th,
+.overview-card dt,
+.report-stat dt,
+.report-grid h3,
+.report-notes h3 {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+}
+
 /* Overview: KPI strip of four cells. */
 main > section.overview {
     padding: 0;
@@ -446,11 +477,6 @@ main > section.overview {
     display: flex;
     align-items: center;
     gap: var(--s2);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: var(--tracking-caps);
-    text-transform: uppercase;
 }
 
 .overview-card dt::before {
@@ -470,7 +496,7 @@ main > section.overview {
 .overview-value {
     margin: var(--s2) 0 var(--s1);
     color: var(--navy-900);
-    font-size: var(--text-xl);
+    font-size: var(--text-2xl);
     font-weight: 700;
     line-height: var(--leading-tight);
     font-variant-numeric: tabular-nums;
@@ -510,7 +536,7 @@ main > section.overview {
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
+    font-size: var(--text-ui);
 }
 
 th, td {
@@ -523,10 +549,6 @@ th, td {
 thead th {
     color: var(--navy-900);
     background: var(--navy-100);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    letter-spacing: var(--tracking-caps);
-    text-transform: uppercase;
     border-bottom: 2px solid var(--navy-700);
 }
 
@@ -534,7 +556,14 @@ tbody tr {
     transition: background-color var(--duration) ease;
 }
 
-tbody tr:is(:hover, :focus-within) {
+.facts tr:nth-child(even),
+.players tbody tr:nth-child(even) {
+    background: var(--surface-2);
+}
+
+/* Hover comes after the stripe, which would otherwise win on specificity. */
+tbody tr:is(:hover, :focus-within),
+:is(.facts, .players) tbody tr:is(:hover, :focus-within) {
     background: var(--navy-100);
     outline: 1px solid var(--border-strong);
     outline-offset: -1px;
@@ -588,11 +617,6 @@ tbody tr:is(:hover, :focus-within) {
     font-variant-numeric: tabular-nums;
 }
 
-.players td:first-child {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-}
-
 .players td:nth-child(2) {
     font-weight: 600;
 }
@@ -618,10 +642,12 @@ main > section:is(#player-estimates, #lineup-estimates) {
     width: 3em;
     color: var(--navy-900);
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
 }
 
 .players thead th:nth-child(n+3),
-.players td:nth-child(n+3) {
+.players td:nth-child(n+3),
+.inputs td {
     text-align: right;
 }
 
@@ -720,9 +746,9 @@ main > section:is(#player-estimates, #lineup-estimates) {
     background: var(--neutral-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
-    line-height: 1.7;
+    line-height: 1.6;
 }
 
 .stale-tag, .missing-tag, .unverifiable-tag {
@@ -821,17 +847,13 @@ input {
     border-radius: var(--radius-pill);
 }
 
-/* The empty track is "not cached"; its legend key uses the same fill and outline. */
-.audit-summary {
-    --track: #e6ebf2;
-}
-
 .bar {
     min-width: 3px;
 }
 
 .validated { background: var(--good); }
 .failed { background: var(--bad); }
+/* The empty track is "not cached"; its legend key uses the same fill and outline. */
 .missing { background: var(--track); box-shadow: inset 0 0 0 1px var(--border-strong); }
 
 /* Legend stays inline text so each swatch sits with its label. */
@@ -855,19 +877,6 @@ input {
 
 .audit .legend {
     margin-bottom: 0;
-}
-
-.callout h3 {
-    margin-bottom: var(--s2);
-}
-
-.callout ul {
-    margin-bottom: var(--s2);
-}
-
-.callout details {
-    background: rgba(255, 255, 255, 0.65);
-    border-color: var(--state-line);
 }
 
 /* Audit sub-panels: a left rule in the panel's state, header row with title and status badge. */
@@ -931,11 +940,6 @@ input {
 .report-grid h3,
 .report-notes h3 {
     margin-bottom: var(--s2);
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-caps);
 }
 
 .verdict p {
@@ -944,10 +948,6 @@ input {
 
 .compare thead th {
     color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-caps);
 }
 
 .compare thead th + th,
@@ -978,14 +978,6 @@ input {
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-}
-
-.report-stat dt {
-    color: var(--muted);
-    font-size: var(--text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-caps);
 }
 
 .report-stat dd {
@@ -1035,7 +1027,7 @@ summary {
     display: flex;
     align-items: center;
     gap: var(--s2);
-    min-height: 32px;
+    min-height: 44px;
     padding: var(--s1) 0;
     color: var(--navy-700);
     cursor: pointer;
@@ -1098,6 +1090,11 @@ summary:hover {
 }
 
 @media (max-width: 640px) {
+    /* Body text steps up to 16px on phones. */
+    :root {
+        --text-base: 16px;
+    }
+
     main {
         gap: var(--s4);
         padding: var(--s4) var(--s4) var(--s6);
@@ -1111,10 +1108,6 @@ summary:hover {
         padding: var(--s5) var(--s4) var(--s4);
     }
 
-    .masthead h1 {
-        font-size: 34px;
-    }
-
     .subtitle {
         font-size: var(--text-base);
     }
@@ -1124,7 +1117,6 @@ summary:hover {
     }
 
     .scoreboard dt {
-        font-size: 10px;
         letter-spacing: 0.08em;
         white-space: normal;
     }
@@ -1151,28 +1143,12 @@ summary:hover {
     }
 
     .overview-value {
-        font-size: 24px;
+        font-size: var(--text-xl);
     }
 
     th, td {
         padding: var(--s2);
     }
-}
-
-.facts tr:nth-child(even),
-.players tbody tr:nth-child(even) {
-    background: var(--surface-2);
-}
-
-/* Restate hover after the stripe, which would otherwise win on specificity. */
-:is(.facts, .players) tbody tr:is(:hover, :focus-within) {
-    background: var(--navy-100);
-}
-
-.inputs td,
-.players td:nth-child(n+3),
-.players th:nth-child(n+3) {
-    text-align: right;
 }
 
 details > :last-child {
@@ -1209,10 +1185,6 @@ main > section:nth-of-type(n+4) { animation-delay: 240ms; }
 
 details[open] > :not(summary) {
     animation: fade-in 200ms ease-out;
-}
-
-summary {
-    min-height: 44px;
 }
 
 .progress .bar {
