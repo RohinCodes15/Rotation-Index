@@ -208,18 +208,28 @@
             </div>
             {% endif %}
 
-            <table class="facts">
-                <tr><th scope="row">Games expected</th><td>{{ "{:,}".format(audit.expected) }}</td></tr>
-                <tr><th scope="row">Cached (play-by-play on disk)</th><td>{{ n(c.cached) }}</td></tr>
-                <tr><th scope="row">Validated</th><td>{{ n(c.validated) }}</td></tr>
-                <tr><th scope="row">Failed validation</th><td>{{ n(c.failed) }}</td></tr>
-                <tr><th scope="row">Not cached yet</th><td>{{ n(c.missing) }}</td></tr>
-                <tr><th scope="row">Possession segments</th><td>{{ n(possession_status.possession_segments) }}</td></tr>
-                <tr><th scope="row">Counted possessions</th><td>{{ n(possession_status.counted_possessions) }}</td></tr>
-                <tr><th scope="row">Model-eligible possessions</th><td>{{ n(possession_status.model_eligible_possessions) }}</td></tr>
-                <tr><th scope="row">Source</th><td>{{ possession_status.source or "not recorded" }}</td></tr>
-                <tr><th scope="row">Report type</th><td>{{ "Offline audit (local files only)" if audit.mode == "offline_audit" else "Loader progress report, not an offline audit" }}</td></tr>
-            </table>
+            <div class="report-grid">
+                <div>
+                    <h3 id="audit-games-title">Games</h3>
+                    <table class="facts" aria-labelledby="audit-games-title">
+                        <tr><th scope="row">Games expected</th><td>{{ "{:,}".format(audit.expected) }}</td></tr>
+                        <tr><th scope="row">Cached (play-by-play on disk)</th><td>{{ n(c.cached) }}</td></tr>
+                        <tr><th scope="row">Validated</th><td>{{ n(c.validated) }}</td></tr>
+                        <tr><th scope="row">Failed validation</th><td>{{ n(c.failed) }}</td></tr>
+                        <tr><th scope="row">Not cached yet</th><td>{{ n(c.missing) }}</td></tr>
+                    </table>
+                </div>
+                <div>
+                    <h3 id="audit-possessions-title">Possessions and source</h3>
+                    <table class="facts" aria-labelledby="audit-possessions-title">
+                        <tr><th scope="row">Possession segments</th><td>{{ n(possession_status.possession_segments) }}</td></tr>
+                        <tr><th scope="row">Counted possessions</th><td>{{ n(possession_status.counted_possessions) }}</td></tr>
+                        <tr><th scope="row">Model-eligible possessions</th><td>{{ n(possession_status.model_eligible_possessions) }}</td></tr>
+                        <tr><th scope="row">Source</th><td>{{ possession_status.source or "not recorded" }}</td></tr>
+                        <tr><th scope="row">Report type</th><td>{{ "Offline audit (local files only)" if audit.mode == "offline_audit" else "Loader progress report, not an offline audit" }}</td></tr>
+                    </table>
+                </div>
+            </div>
             {% if audit.message %}<p class="small">Audit message: {{ audit.message }}</p>{% endif %}
 
             {% set inputs = audit.inputs %}
