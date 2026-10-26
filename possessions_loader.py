@@ -6,6 +6,7 @@ import sys
 import shutil
 import stat
 import time
+from threading import RLock
 from collections import Counter
 from importlib.metadata import version
 from pathlib import Path
@@ -17,10 +18,12 @@ from pbpstats.resources.enhanced_pbp import (
     FieldGoal,
     FreeThrow,
     Foul,
+    InvalidNumberOfStartersException,
     Rebound,
     Substitution,
     Turnover,
 )
+from pbpstats.resources.enhanced_pbp.live.start_of_period import LiveStartOfPeriod
 
 BASE = Path(__file__).resolve().parent
 ROOT = BASE / "data/cache/possessions"
@@ -35,6 +38,7 @@ LIVE_PBP_URL = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/l
 RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = 1.0  # waits 1, 2, 4, 8 s between attempts: at most 15 s per file
+_STARTERS_LOCK = RLock()
 
 # Individually verified NBA live-feed corrections. Each entry is guarded by the
 # game/action identity and the exact feed value it replaces; never infer a sub.
@@ -56,6 +60,19 @@ VERIFIED_CORRECTIONS = (
         "evidence_url": "https://statsdmz.nba.com/pdfs/20241022/20241022_NYKBOS_book.pdf",
     },
 )
+
+_LIVE_BOXSCORE = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/boxscore/boxscore_{}.json"
+
+# Official home team where the pinned manifest's sides are reversed (evidence:
+# fixtures/official_evidence_2025-26.json). Guarded by the exact manifest teams it
+# corrects; the manifest itself stays untouched.
+VERIFIED_HOME_TEAMS = {
+    "0022500147": {
+        "manifest_home_team_id": "1610612742",  # DAL
+        "home_team_id": "1610612765",  # DET: homeTeam, gameCode 20251101/DALDET, Arena CDMX
+        "evidence_url": _LIVE_BOXSCORE.format("0022500147"),
+    },
+}
 
 
 def save(path, data, *, pretty=False):
@@ -128,6 +145,58 @@ def apply_verified_corrections(game_id, events):
     return applied
 
 
+def _opening_tip_players(raw_events):
+    """{period: {player: team}} for players named in each period's opening jump ball.
+
+    pbpstats' live parser drops jumpBallWon/LostPersonId, so a tip participant with
+    no other event that period is missing from its starters. A participant counts
+    only if every non-jump-ball event names one team for them and they were not
+    substituted in between the period start and the tip.
+    """
+    teams = {}
+    for event in raw_events:
+        if event.get("actionType") != "jumpball" and event.get("personId") and event.get("teamId"):
+            teams.setdefault(event["personId"], set()).add(event["teamId"])
+    tips, subbed_in = {}, set()
+    for event in raw_events:
+        period = event.get("period")
+        if event.get("actionType") == "period" and event.get("subType") == "start":
+            subbed_in = set()
+        elif event.get("actionType") == "substitution" and event.get("subType") == "in":
+            subbed_in.add(event.get("personId"))
+        elif (event.get("actionType") == "jumpball" and event.get("descriptor") == "startperiod"
+              and period not in tips):
+            tips[period] = {
+                pid: next(iter(teams[pid]))
+                for pid in (event.get("jumpBallWonPersonId"), event.get("jumpBallLostPersonId"))
+                if pid and len(teams.get(pid, ())) == 1 and pid not in subbed_in
+            }
+    return tips
+
+
+def _starters_with_opening_tip(tips, game_id):
+    """pbpstats period starters, completed only by explicit opening-tip evidence."""
+    original = LiveStartOfPeriod.get_period_starters
+
+    def get_period_starters(self, file_directory=None, ignore_missing_starters=False):
+        try:
+            return original(self, file_directory, ignore_missing_starters)
+        except InvalidNumberOfStartersException:
+            if self.game_id != game_id:
+                raise
+            starters = original(self, file_directory, ignore_missing_starters=True)
+            for pid, team in tips.get(self.period, {}).items():
+                if team in starters and pid not in starters[team]:
+                    starters[team] = [*starters[team], pid]
+            players = [pid for team in starters.values() for pid in team]
+            if (len(starters) != 2 or any(len(set(p)) != 5 or len(p) != 5 for p in starters.values())
+                    or len(set(players)) != 10 or any(type(pid) is not int or pid <= 0 for pid in players)):
+                raise
+            return starters
+
+    return get_period_starters
+
+
 def normalize(game_info):
     season.require_metadata(game_info)
     gid = game_info["GameId"]
@@ -135,7 +204,15 @@ def normalize(game_info):
     if source["gameId"] != gid:
         raise ValueError("wrong game id or season in raw feed")
     client = Client({"dir": str(RAW), "Possessions": {"source": "file", "data_provider": "live"}})
-    game = client.Game(gid)
+    # The parser hook is global; serialize its use and bind its evidence to this game.
+    evidence = _opening_tip_players(source["actions"])
+    with _STARTERS_LOCK:
+        original_starters = LiveStartOfPeriod.get_period_starters
+        LiveStartOfPeriod.get_period_starters = _starters_with_opening_tip(evidence, gid)
+        try:
+            game = client.Game(gid)
+        finally:
+            LiveStartOfPeriod.get_period_starters = original_starters
     teams = {str(game_info[f"{side}TeamId"]) for side in ("Home", "Away")}
     expected = {str(game_info[f"{side}TeamId"]): game_info[f"{side}Points"] for side in ("Home", "Away")}
     raw_events = source["actions"]
@@ -145,10 +222,26 @@ def normalize(game_info):
         raise ValueError("missing period")
     if max(e["period"] for e in raw_events) < 4:
         raise ValueError("incomplete game")
+    final = {}
     for side in ("Home", "Away"):
         scores = [e[f"score{side}"] for e in raw_events if str(e.get(f"score{side}", "")).strip()]
-        if not scores or int(scores[-1]) != game_info[f"{side}Points"]:
-            raise ValueError(f"{side}: final play-by-play score disagrees with game list")
+        final[side] = int(scores[-1]) if scores else None
+    home = VERIFIED_HOME_TEAMS.get(gid)
+    if home:
+        if (home["manifest_home_team_id"], home["home_team_id"]) != (game_info["HomeTeamId"], game_info["AwayTeamId"]):
+            raise ValueError("verified home-team correction does not match the game list")
+        if final != {"Home": game_info["AwayPoints"], "Away": game_info["HomePoints"]}:
+            raise ValueError("final play-by-play score disagrees with the verified home team")
+    elif final == {"Home": game_info["AwayPoints"], "Away": game_info["HomePoints"]}:
+        # Same team totals, opposite sides: contradictory sources, never swapped here.
+        raise ValueError(
+            f"home/away disagrees with game list: feed home score {final['Home']} is manifest away "
+            f"{game_info['AwayTeamAbbreviation']}, feed away score {final['Away']} is manifest home "
+            f"{game_info['HomeTeamAbbreviation']}; official home-team evidence required")
+    else:
+        for side in ("Home", "Away"):
+            if final[side] != game_info[f"{side}Points"]:
+                raise ValueError(f"{side}: final play-by-play score disagrees with game list")
     rows, score, counts, seen = [], Counter(), Counter(), []
     possessions = game.possessions.items
     all_events = [event for possession in possessions for event in possession.events]

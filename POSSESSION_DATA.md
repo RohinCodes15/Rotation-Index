@@ -44,6 +44,54 @@ export returned HTTP 404. No production estimates or diagnostics were created or
 overwritten. These seven data failures still require verified evidence before
 the full-season fit can run; no validation or correction guards were relaxed.
 
+**Evidence-backed fixes (audited in the rerun below):** three of the
+seven blockers now normalize locally; four remain failed. `0022500550` and
+`0022501044`: the missing OT starter is named by the period-5 opening jump ball,
+which pbpstats' live parser ignores. `0022500147`: `VERIFIED_HOME_TEAMS` in
+`possessions_loader.py` applies the official home team DET to the score check
+only, guarded by the exact game ID and manifest teams, with the manifest
+untouched. Evidence is in `fixtures/official_evidence_2025-26.json`, from the
+official NBA live box score (`.../NBA/liveData/boxscore/boxscore_<game_id>.json`:
+`homeTeam`, gameCode `20251101/DALDET`, Arena CDMX). The four OT games below stay
+failed: that box score is end-of-game state only (`starter`, `oncourt` at the
+final buzzer) and does not name who started overtime. An earlier minutes-arithmetic
+correction was inference and has been removed. The NBA.com box score filtered to
+OT1, recorded in the same fixture with screenshots in `fixtures/evidence/`, shows
+MIN 5:00 (the whole period) for Aldama (MEM) and Grimes (PHI) in `0022500458`,
+both teams' full five, Hauser (BOS) in `0022500637` and Washington (DAL) in
+`0022501029`; for `0022500521` it shows "NO BOX SCORE DATA AVAILABLE", so BKN is
+unresolved. No correction applies this evidence yet; all four games still fail.
+Original diagnosis:
+
+- `0022500147`: not a parser bug. Team totals agree (DET 122, DAL 110) and the
+  game passes every other check with the sides reversed in a scratch copy; the
+  live feed's `scoreHome` tracks DET while the pinned pbpstats manifest lists DAL
+  as home. No local scoreboard or box score breaks the tie. Required: an official
+  NBA box score or scoreboard for this game ID naming the home team.
+- `0022500458` (MEM S. Aldama `1630583`, PHI Q. Grimes `1629656`), `0022500521`
+  (BKN N. Clowney `1641730`), `0022500637` (BOS S. Hauser `1630573`),
+  `0022501029` (DAL P. Washington `1629023`): the named player finished period 4
+  on court but appears in no period-5 action (no shot, foul, assist, block,
+  steal, jump ball or substitution). Carrying the lineup across the break is
+  inference, so no fallback is applied. Required: an official period-5 box score
+  or official OT starters showing that player on court at 5:00 of overtime.
+
+**Rebuild and offline audit rerun, 2026-10-25:** `--rebuild-all` (rebuilt 3,
+unchanged 1,223, failed 4) then `--offline`, local files only, no network.
+1,226 of 1,230 games validated, 4 failed closed, 0 missing; 247,298 possession
+segments, 245,272 counted, 232,389 model-eligible. `complete` is false, so the
+model gate is still **not ready** and no model was fit. Failed:
+`0022500458`, `0022500521`, `0022500637`, `0022501029`, each with
+`InvalidNumberOfStartersException` (four period-5 starters for one team), with no
+normalized file written. In the real cache, `0022500147` scores DET 122, DAL 110
+with manifest metadata still DAL home, and `0022500550` (Bona, PHI) and
+`0022501044` (Washington, DAL) include the opening-tip starter in the first
+eligible period-5 lineup; every eligible possession has five distinct players
+per side and no correction was applied. A before/after SHA-256 comparison of every
+project file found changes only to those three normalized games and
+`status.json`: raw play-by-play, the manifest and all estimate and diagnostics
+outputs are byte-identical, and none were created.
+
 A separate three-game, test-only 2025–26 manifest exercises successful gated
 publication entirely in a temporary directory. Its dashboard displays possession
 estimates and exports matching 2025–26 diagnostics. Repeated fits produce identical

@@ -1,0 +1,253 @@
+{
+  "retrieved": "2026-10-25",
+  "games": [
+    {
+      "game_id": "0022500147",
+      "fact": "home_team",
+      "status": "resolved",
+      "period": null,
+      "team_id": 1610612765,
+      "team": "DET",
+      "source_url": "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/boxscore/boxscore_0022500147.json",
+      "supporting": {
+        "homeTeam.teamId": 1610612765,
+        "homeTeam.score": 122,
+        "awayTeam.teamId": 1610612742,
+        "awayTeam.teamTricode": "DAL",
+        "awayTeam.score": 110,
+        "gameCode": "20251101/DALDET",
+        "gameStatusText": "Final",
+        "arena": "Arena CDMX",
+        "arenaCity": "Mexico City"
+      }
+    },
+    {
+      "game_id": "0022500458",
+      "fact": "period_starter",
+      "status": "resolved",
+      "period": 5,
+      "team_id": 1610612763,
+      "team": "MEM",
+      "person_id": 1630583,
+      "player": "Santi Aldama",
+      "source_url": "https://www.nba.com/game/0022500458/box-score?period=OT1",
+      "evidence_basis": "NBA.com box score filtered to OT1 (period 5, a 5:00 period). A player whose OT1 MIN is 5:00 played the entire period, so was on court at its start. Read directly from the period-5 box score; not derived from game totals, final on-court status or play-by-play.",
+      "period_starters": [
+        1642377,
+        1628991,
+        1642907,
+        1629630,
+        1630583
+      ],
+      "supporting": {
+        "visible_rows_OT1": [
+          [
+            "Jaylen Wells",
+            1642377,
+            "5:00"
+          ],
+          [
+            "Jaren Jackson Jr.",
+            1628991,
+            "5:00"
+          ],
+          [
+            "Cedric Coward",
+            1642907,
+            "5:00"
+          ],
+          [
+            "Ja Morant",
+            1629630,
+            "5:00"
+          ],
+          [
+            "Santi Aldama",
+            1630583,
+            "5:00"
+          ]
+        ],
+        "screenshot": "fixtures/evidence/0022500458_MEM_OT1.jpg"
+      }
+    },
+    {
+      "game_id": "0022500458",
+      "fact": "period_starter",
+      "status": "resolved",
+      "period": 5,
+      "team_id": 1610612755,
+      "team": "PHI",
+      "person_id": 1629656,
+      "player": "Quentin Grimes",
+      "source_url": "https://www.nba.com/game/0022500458/box-score?period=OT1",
+      "evidence_basis": "NBA.com box score filtered to OT1 (period 5, a 5:00 period). A player whose OT1 MIN is 5:00 played the entire period, so was on court at its start. Read directly from the period-5 box score; not derived from game totals, final on-court status or play-by-play.",
+      "period_starters": [
+        202331,
+        203954,
+        1642845,
+        1630178,
+        1629656
+      ],
+      "supporting": {
+        "visible_rows_OT1": [
+          [
+            "Paul George",
+            202331,
+            "5:00"
+          ],
+          [
+            "Joel Embiid",
+            203954,
+            "5:00"
+          ],
+          [
+            "VJ Edgecombe",
+            1642845,
+            "5:00"
+          ],
+          [
+            "Tyrese Maxey",
+            1630178,
+            "5:00"
+          ],
+          [
+            "Quentin Grimes",
+            1629656,
+            "5:00"
+          ]
+        ],
+        "screenshot": "fixtures/evidence/0022500458_PHI_OT1.jpg"
+      }
+    },
+    {
+      "game_id": "0022500521",
+      "fact": "period_starter",
+      "status": "unresolved",
+      "period": 5,
+      "team_id": 1610612751,
+      "team": "BKN",
+      "person_id": 1641730,
+      "player": "Noah Clowney",
+      "source_url": "https://www.nba.com/game/0022500521/box-score?period=OT1",
+      "evidence_basis": null,
+      "period_starters": null,
+      "supporting": {
+        "visible_rows_OT1": [],
+        "screenshot": "fixtures/evidence/0022500521_OT1_no_data.jpg"
+      },
+      "unresolved_reason": "NBA.com OT1 box score shows 'NO BOX SCORE DATA AVAILABLE' (retried; All Periods loads). No official period-5 lineup."
+    },
+    {
+      "game_id": "0022500637",
+      "fact": "period_starter",
+      "status": "resolved",
+      "period": 5,
+      "team_id": 1610612738,
+      "team": "BOS",
+      "person_id": 1630573,
+      "player": "Sam Hauser",
+      "source_url": "https://www.nba.com/game/0022500637/box-score?period=OT1",
+      "evidence_basis": "NBA.com box score filtered to OT1 (period 5, a 5:00 period). A player whose OT1 MIN is 5:00 played the entire period, so was on court at its start. Read directly from the period-5 box score; not derived from game totals, final on-court status or play-by-play.",
+      "period_starters": null,
+      "supporting": {
+        "visible_rows_OT1": [
+          [
+            "Jaylen Brown",
+            1627759,
+            "5:00"
+          ],
+          [
+            "Sam Hauser",
+            1630573,
+            "5:00"
+          ],
+          [
+            "Baylor Scheierman",
+            null,
+            "3:39"
+          ],
+          [
+            "Payton Pritchard",
+            1630202,
+            "4:60"
+          ],
+          [
+            "Hugo Gonz\u00e1lez",
+            null,
+            "2:22"
+          ],
+          [
+            "Anfernee Simons",
+            1629014,
+            "1:54"
+          ],
+          [
+            "Luka Garza",
+            null,
+            "2:01"
+          ],
+          [
+            "Amari Williams",
+            null,
+            "0:05"
+          ]
+        ],
+        "screenshot": "fixtures/evidence/0022500637_BOS_OT1.jpg"
+      },
+      "period_starters_note": "Full five not determinable from this box score (substitutions within OT1); only the missing player is confirmed."
+    },
+    {
+      "game_id": "0022501029",
+      "fact": "period_starter",
+      "status": "resolved",
+      "period": 5,
+      "team_id": 1610612742,
+      "team": "DAL",
+      "person_id": 1629023,
+      "player": "P.J. Washington",
+      "source_url": "https://www.nba.com/game/0022501029/box-score?period=OT1",
+      "evidence_basis": "NBA.com box score filtered to OT1 (period 5, a 5:00 period). A player whose OT1 MIN is 5:00 played the entire period, so was on court at its start. Read directly from the period-5 box score; not derived from game totals, final on-court status or play-by-play.",
+      "period_starters": null,
+      "supporting": {
+        "visible_rows_OT1": [
+          [
+            "Cooper Flagg",
+            1642843,
+            "5:00"
+          ],
+          [
+            "P.J. Washington",
+            1629023,
+            "5:00"
+          ],
+          [
+            "Daniel Gafford",
+            1629655,
+            "2:13"
+          ],
+          [
+            "Naji Marshall",
+            1630230,
+            "5:00"
+          ],
+          [
+            "Klay Thompson",
+            202691,
+            "2:47"
+          ],
+          [
+            "Ryan Nembhard",
+            1642948,
+            "5:00"
+          ]
+        ],
+        "screenshot": "fixtures/evidence/0022501029_DAL_OT1.jpg"
+      },
+      "period_starters_note": "Full five not determinable from this box score (substitutions within OT1); only the missing player is confirmed."
+    }
+  ],
+  "sources": {
+    "home_team": "official NBA live box score (liveData/boxscore)",
+    "period_starter": "NBA.com game box score, period filter OT1, viewed in browser 2026-10-25"
+  }
+}
