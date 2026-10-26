@@ -908,10 +908,112 @@ input {
     list-style: none;
 }
 
+/* Corrections stay visible but read as supporting detail. */
 .audit .corrections li {
     padding-left: var(--s3);
-    color: var(--text);
+    color: var(--muted);
+    font-size: var(--text-sm);
     border-left: 3px solid var(--navy-100);
+}
+
+.audit .corrections strong {
+    color: var(--text);
+}
+
+/* Model report: grouped settings, metric comparison, headline stats, then caveats. */
+.report-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s5);
+    margin: var(--s4) 0;
+}
+
+.report-grid .facts {
+    margin: 0;
+}
+
+.report-grid h3,
+.report-notes h3 {
+    margin-bottom: var(--s2);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+}
+
+.verdict p {
+    margin-bottom: var(--s1);
+}
+
+.compare thead th {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+}
+
+.compare thead th + th,
+.compare td {
+    text-align: right;
+}
+
+.compare td.lower {
+    color: var(--navy-900);
+    font-weight: 800;
+}
+
+.holdout-errors tr.selected td {
+    background: var(--navy-100);
+    font-weight: 700;
+}
+
+.report-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s4);
+    margin: var(--s4) 0;
+}
+
+.report-stat {
+    padding: var(--s3) var(--s4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.report-stat dt {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+}
+
+.report-stat dd {
+    margin: var(--s1) 0 0;
+}
+
+.stat-value {
+    color: var(--navy-900);
+    font-size: var(--text-lg);
+    font-weight: 800;
+    line-height: var(--leading-tight);
+    font-variant-numeric: tabular-nums;
+}
+
+.report-notes {
+    margin-top: var(--s5);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+    .report-grid,
+    .report-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* Disclosures */

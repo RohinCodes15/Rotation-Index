@@ -22,6 +22,8 @@
         {% macro count(value) %}{{ "{:,}".format(value) if value is number else "–" }}{% endmacro %}
         {# Signed value plus a bar from zero; width is |value| against the largest |value| shown in the table. #}
         {% macro impact(value, scale, net=false) %}<td class="impact{{ ' net' if net }} {{ 'pos' if value > 0 else 'neg' }}"><span class="impact-value">{{ "%+.2f"|format(value) }}</span><span class="bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(50 * value|abs / (scale or 1)) }}%"></span></span></td>{% endmacro %}
+        {# Diagnostics error cell; the lower error in each row is marked in text, not only by weight. #}
+        {% macro error_cell(value, other) %}<td{% if value < other %} class="lower"{% endif %}>{{ "%.4f"|format(value) }}{% if value < other %} <span class="tag">lower</span>{% endif %}</td>{% endmacro %}
         {# Model cell mirrors the overview's model-status branches. #}
         {% if status %}{% set model_state = "Lineup total" %}
         {% elif not audit %}{% set model_state = "No data" %}
@@ -393,25 +395,38 @@
         <section>
             <h2>Possession model details</h2>
             {% set m = possession_model %}
-            <table class="facts">
-                <tr><th scope="row">Season</th><td>{{ m.season }} {{ m.season_type }}</td></tr>
-                <tr><th scope="row">Source</th><td>{{ m.source }}</td></tr>
-                <tr><th scope="row">Fitted</th><td>{{ m.created_at }}</td></tr>
-                <tr><th scope="row">Games used</th><td>{{ "{:,}".format(m.games_used) }} of {{ "{:,}".format(m.games_validated) }} validated</td></tr>
-                <tr><th scope="row">Eligible possessions modeled</th><td>{{ "{:,}".format(m.eligible_possessions) }}{% if possession_status.counted_possessions %} of {{ "{:,}".format(possession_status.counted_possessions) }} counted{% endif %}</td></tr>
-                <tr><th scope="row">Players fit</th><td>{{ "{:,}".format(m.players) }}</td></tr>
-                <tr><th scope="row">Selected ridge penalty</th><td>{{ m.selected_penalty }}</td></tr>
-                <tr><th scope="row">Holdout split</th><td>{{ m.training_game_ids|length }} training games, {{ m.holdout_game_ids|length }} holdout games; {{ m.holdout_split }}</td></tr>
-                <tr><th scope="row">League average (intercept)</th><td>{{ "%.1f"|format(100 * m.intercept_points_per_possession) }} points per 100 possessions</td></tr>
-                <tr><th scope="row">Final fit</th><td>{{ m.final_fit }}</td></tr>
-            </table>
+            <div class="report-grid">
+                <div>
+                    <h3 id="model-data-title">Data</h3>
+                    <table class="facts" aria-labelledby="model-data-title">
+                        <tr><th scope="row">Season</th><td>{{ m.season }} {{ m.season_type }}</td></tr>
+                        <tr><th scope="row">Source</th><td>{{ m.source }}</td></tr>
+                        <tr><th scope="row">Fitted</th><td>{{ m.created_at }}</td></tr>
+                        <tr><th scope="row">Games used</th><td>{{ "{:,}".format(m.games_used) }} of {{ "{:,}".format(m.games_validated) }} validated</td></tr>
+                        <tr><th scope="row">Eligible possessions modeled</th><td>{{ "{:,}".format(m.eligible_possessions) }}{% if possession_status.counted_possessions %} of {{ "{:,}".format(possession_status.counted_possessions) }} counted{% endif %}</td></tr>
+                        <tr><th scope="row">Players fit</th><td>{{ "{:,}".format(m.players) }}</td></tr>
+                    </table>
+                </div>
+                <div>
+                    <h3 id="model-fit-title">Fit settings</h3>
+                    <table class="facts" aria-labelledby="model-fit-title">
+                        <tr><th scope="row">Selected ridge penalty</th><td>{{ m.selected_penalty }}</td></tr>
+                        <tr><th scope="row">Holdout split</th><td>{{ m.training_game_ids|length }} training games, {{ m.holdout_game_ids|length }} holdout games; {{ m.holdout_split }}</td></tr>
+                        <tr><th scope="row">League average (intercept)</th><td>{{ "%.1f"|format(100 * m.intercept_points_per_possession) }} points per 100 possessions</td></tr>
+                        <tr><th scope="row">Final fit</th><td>{{ m.final_fit }}</td></tr>
+                    </table>
+                </div>
+            </div>
             <details>
                 <summary>Holdout error by penalty ({{ m.holdout_error_units }})</summary>
-                <ul>
-                {% for penalty, error in m.holdout_errors.items() %}
-                    <li>{{ penalty }}: {{ "%.5f"|format(error) }}{% if penalty|float == m.selected_penalty|float %} (selected){% endif %}</li>
-                {% endfor %}
-                </ul>
+                <table class="facts holdout-errors">
+                    <thead><tr><th scope="col">Penalty</th><th scope="col">Holdout error</th></tr></thead>
+                    <tbody>
+                    {% for penalty, error in m.holdout_errors.items() %}{% set selected = penalty|float == m.selected_penalty|float %}
+                        <tr{% if selected %} class="selected"{% endif %}><td>{{ penalty }}</td><td>{{ "%.5f"|format(error) }}{% if selected %} (selected){% endif %}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
             </details>
             <p class="small">These outputs match the current audit: same season, source, {{ "{:,}".format(m.games_used) }} audited game IDs, and {{ "{:,}".format(m.eligible_possessions) }} model-eligible possessions. Possession exclusions are listed in the audit above.</p>
         </section>
@@ -423,29 +438,45 @@
             {% set base = diagnostics.metrics.training_mean_baseline %}
             {% set st = diagnostics.stability %}
             <p>These are validation metrics: how closely the model predicted points per possession in held-out games it was not trained on. Lower is better.</p>
-            <table class="facts">
-                <tr><th scope="col"></th><th scope="col">Ridge</th><th scope="col">Baseline (training average)</th></tr>
-                <tr><th scope="row">Mean absolute error<br><span class="small">The typical miss: the average distance between predicted and actual points on a possession.</span></th><td>{{ "%.4f"|format(ridge.mae) }}</td><td>{{ "%.4f"|format(base.mae) }}</td></tr>
-                <tr><th scope="row">Root mean squared error<br><span class="small">Like MAE, but big misses count extra, so it is always at least as large as MAE.</span></th><td>{{ "%.4f"|format(ridge.rmse) }}</td><td>{{ "%.4f"|format(base.rmse) }}</td></tr>
-            </table>
-            <p class="small">Errors are in {{ diagnostics.metrics.units }}.</p>
-            <table class="facts">
-                <tr><th scope="row">Improves on baseline<br><span class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</span></th><td>
-                    {% if diagnostics.improves == "yes" %}Yes: Ridge has lower MAE and RMSE than the baseline.
+            <div class="callout verdict state-{{ {'yes': 'good', 'no': 'bad'}.get(diagnostics.improves, 'wait') }}">
+                <h3>Improves on baseline</h3>
+                <p><strong>{% if diagnostics.improves == "yes" %}Yes: Ridge has lower MAE and RMSE than the baseline.
                     {% elif diagnostics.improves == "no" %}No: Ridge does not have lower MAE or RMSE than the baseline.
-                    {% else %}Mixed: Ridge is lower on {{ "MAE" if ridge.mae < base.mae else "RMSE" }} only.{% endif %}
-                </td></tr>
-                <tr><th scope="row">Holdout</th><td>{{ "{:,}".format(ridge.holdout_games) }} games, {{ "{:,}".format(ridge.evaluated_possessions) }} possessions</td></tr>
-                <tr><th scope="row">Stability (penalty sensitivity)<br><span class="small">How similar player net effects stay between the smallest and largest Ridge penalty tried. Near 1 means the ranking barely depends on that tuning choice.</span></th><td>
-                    {% if st.net_effect_correlation is none %}Not defined (too few players or identical net effects).
-                    {% else %}Net effects at penalty {{ st.min_penalty }} and {{ st.max_penalty }} correlate at {{ "%.3f"|format(st.net_effect_correlation) }}.{% endif %}
-                    This is penalty sensitivity, not statistical uncertainty: it is not a confidence interval or margin of error.
-                </td></tr>
+                    {% else %}Mixed: Ridge is lower on {{ "MAE" if ridge.mae < base.mae else "RMSE" }} only.{% endif %}</strong></p>
+                <p class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</p>
+            </div>
+            <div class="table-wrap">
+            <table class="facts compare">
+                <thead><tr><th scope="col">Metric</th><th scope="col">Ridge</th><th scope="col">Baseline (training average)</th></tr></thead>
+                <tbody>
+                <tr><th scope="row">Mean absolute error<br><span class="small">The typical miss: the average distance between predicted and actual points on a possession.</span></th>{{ error_cell(ridge.mae, base.mae) }}{{ error_cell(base.mae, ridge.mae) }}</tr>
+                <tr><th scope="row">Root mean squared error<br><span class="small">Like MAE, but big misses count extra, so it is always at least as large as MAE.</span></th>{{ error_cell(ridge.rmse, base.rmse) }}{{ error_cell(base.rmse, ridge.rmse) }}</tr>
+                </tbody>
             </table>
+            </div>
+            <p class="small">Errors are in {{ diagnostics.metrics.units }}.</p>
+            <dl class="report-stats">
+                <div class="report-stat">
+                    <dt>Holdout</dt>
+                    <dd class="stat-value">{{ "{:,}".format(ridge.holdout_games) }} games, {{ "{:,}".format(ridge.evaluated_possessions) }} possessions</dd>
+                </div>
+                <div class="report-stat">
+                    <dt>Stability (penalty sensitivity)</dt>
+                    {% if st.net_effect_correlation is none %}<dd class="stat-value">Not defined</dd>
+                    <dd class="small">Too few players or identical net effects.</dd>
+                    {% else %}<dd class="stat-value">{{ "%.3f"|format(st.net_effect_correlation) }}</dd>
+                    <dd class="small">Net effects at penalty {{ st.min_penalty }} and {{ st.max_penalty }} correlate at {{ "%.3f"|format(st.net_effect_correlation) }}.</dd>{% endif %}
+                    <dd class="small">How similar player net effects stay between the smallest and largest Ridge penalty tried. Near 1 means the ranking barely depends on that tuning choice.
+                        This is penalty sensitivity, not statistical uncertainty: it is not a confidence interval or margin of error.</dd>
+                </div>
+            </dl>
+            <div class="report-notes">
+            <h3>Reading these results</h3>
             <p class="small">Why this is not proof of causation: these numbers only show how well lineups predict scoring in games the model did not see. Players do not get random minutes, so who plays with whom, against whom, and when (rest, garbage time, matchups) can drive results that the model credits to a player.</p>
             <ul class="small">
                 {% for limitation in diagnostics.limitations %}<li>{{ limitation }}</li>{% endfor %}
             </ul>
+            </div>
             <p class="small"><a href="{{ url_for('diagnostics_export') }}" download="possession_diagnostics.json">Download the diagnostics JSON</a> (schema version {{ diagnostics.schema_version }}): holdout game IDs, model settings, validation metrics, and stability. It contains no player estimates.</p>
             {% else %}
             <p>Model diagnostics are unavailable: {{ diagnostics_problem }}. Refit the model to regenerate them.</p>
