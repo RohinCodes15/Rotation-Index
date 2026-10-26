@@ -63,24 +63,44 @@
 
         {% if audit %}
         {% macro n(value) %}{{ "{:,}".format(value) if value is number else "not recorded" }}{% endmacro %}
+        {# Card states are read from the same counts the cards display; unknown counts stay neutral. #}
+        {% set ac = audit.counts %}
+        {% set aic = audit.inputs.counts %}
+        {% set validated_state = "neutral" if ac.validated is not number else ("good" if ac.validated == audit.expected else "wait") %}
+        {% set waiting_state = "neutral" if ac.missing is not number else ("wait" if ac.missing else "good") %}
+        {% set failed_state = "neutral" if ac.failed is not number else ("bad" if ac.failed else "good") %}
+        {% if not audit.inputs.checked %}{% set inputs_state = "neutral" %}
+        {% elif aic.unverifiable %}{% set inputs_state = "bad" %}
+        {% elif audit.inputs.fresh %}{% set inputs_state = "good" %}
+        {% else %}{% set inputs_state = "wait" %}{% endif %}
         <section class="overview" aria-label="Season overview">
             <dl class="overview-grid">
-                <div class="overview-card">
+                <div class="overview-card state-{{ validated_state }}">
                     <dt>Validated games</dt>
                     <dd class="overview-value">{{ n(audit.counts.validated) }}</dd>
                     <dd class="overview-detail">of {{ n(audit.expected) }} regular-season games</dd>
                 </div>
-                <div class="overview-card">
+                <div class="overview-card state-{{ waiting_state }}">
                     <dt>Waiting games</dt>
                     <dd class="overview-value">{{ n(audit.counts.missing) }}</dd>
                     <dd class="overview-detail">Waiting on raw play-by-play</dd>
                 </div>
-                <div class="overview-card">
+                <div class="overview-card state-{{ failed_state }}">
+                    <dt>Failed games</dt>
+                    <dd class="overview-value">{{ n(audit.counts.failed) }}</dd>
+                    <dd class="overview-detail">{{ "None failed parsing or validation" if ac.failed == 0 else "Failed parsing or validation" }}</dd>
+                </div>
+                <div class="overview-card state-{{ inputs_state }}">
                     <dt>Fresh model inputs</dt>
                     <dd class="overview-value">{{ n(audit.inputs.counts.fresh) if audit.inputs.checked else "Not checked" }}</dd>
-                    <dd class="overview-detail">{{ "Match the saved audit" if audit.inputs.checked else "An audited game list is needed" }}</dd>
+                    <dd class="overview-detail">{% if not audit.inputs.checked %}An audited game list is needed
+                        {%- elif aic.stale or aic.missing or aic.unverifiable %}{{ [
+                            "{:,} stale".format(aic.stale) if aic.stale,
+                            "{:,} missing".format(aic.missing) if aic.missing,
+                            "{:,} unverifiable".format(aic.unverifiable) if aic.unverifiable]|select|join(" · ") }}
+                        {%- else %}Match the saved audit{% endif %}</dd>
                 </div>
-                <div class="overview-card overview-model">
+                <div class="overview-card overview-model state-{{ 'good' if audit.ready and possession_model and possession_players is not none else 'wait' }}">
                     <dt>Model status</dt>
                     {% if not audit.ready %}
                     <dd class="overview-value">Locked</dd>
@@ -100,7 +120,7 @@
         {% if not status %}
         {# An incomplete season is already explained by the header, overview, and audit notice. #}
         {% if not (audit and not audit.ready and not audit.raw_complete) %}
-        <section class="notice{{ ' notice-warn' if audit and not (audit.ready and possession_model) }}">
+        <section class="notice{{ ' notice-warn' if audit and not (audit.ready and possession_model) else (' notice-ok' if audit) }}">
             {% if audit and not audit.ready and audit.raw_complete %}
             <h2>Model inputs out of date</h2>
             <p>All games validated, but some model inputs no longer match the audited cache, so player estimates are hidden. See the model inputs below.</p>
@@ -164,12 +184,12 @@
             </div>
 
             {% if audit.ready %}
-            <details>
+            <details class="callout state-good">
                 <summary>All {{ "{:,}".format(audit.expected) }} games validated.</summary>
                 <p>Every game's model inputs match the audit and the season passes the model's gate, so possession-level estimates can be shown when saved outputs match this cache.</p>
             </details>
             {% else %}
-            <div class="notice">
+            <div class="notice callout state-wait">
                 <h3>Why player estimates are unavailable</h3>
                 {% if audit.raw_complete %}
                 <p>All {{ "{:,}".format(audit.expected) }} games validated, but player estimates are unavailable until every game's model inputs match the audited cache.</p>
@@ -205,11 +225,11 @@
             {% set inputs = audit.inputs %}
             {% set ic = inputs.counts %}
             {% set input_issues = (ic.stale + ic.missing + ic.unverifiable) if inputs.checked else 0 %}
-            <div class="audit-card">
+            <div class="audit-card state-{{ inputs_state }}">
             <div class="audit-card-head">
                 <h3 id="model-inputs-title">Model inputs</h3>
                 {% if not inputs.checked %}<span class="badge badge-muted">Not checked</span>
-                {% elif input_issues %}<span class="badge badge-warn">{{ "{:,}".format(input_issues) }} need attention</span>
+                {% elif input_issues %}<span class="badge badge-{{ 'bad' if ic.unverifiable else 'warn' }}">{{ "{:,}".format(input_issues) }} need attention</span>
                 {% elif inputs.fresh %}<span class="badge badge-ok">All fresh</span>
                 {% else %}<span class="badge badge-warn">{{ "{:,}".format(ic.fresh) }} fresh · {{ "{:,}".format(ic.missing_raw) }} waiting</span>{% endif %}
             </div>
@@ -248,7 +268,7 @@
             {% endif %}
             </div>
 
-            <div class="audit-card">
+            <div class="audit-card state-{{ 'bad' if audit.failures else 'good' }}">
             <div class="audit-card-head">
                 <h3>Validation failures</h3>
                 {% if audit.failures %}<span class="badge badge-bad">{{ "{:,}".format(audit.failures|length) }} failed</span>{% else %}<span class="badge badge-ok">None</span>{% endif %}
@@ -263,7 +283,7 @@
             {% endif %}
             </div>
 
-            <div class="audit-card">
+            <div class="audit-card state-neutral">
             <div class="audit-card-head">
                 <h3>Recorded corrections</h3>
                 <span class="badge badge-muted">{{ "{:,}".format(audit.corrections|length) if audit.corrections else "None" }}{{ " recorded" if audit.corrections }}</span>
@@ -284,7 +304,7 @@
             </div>
 
             {% if audit.missing_ranges or audit.differences or possession_status.flags %}
-            <div class="audit-card">
+            <div class="audit-card state-{{ 'wait' if c.missing else 'neutral' }}">
             <div class="audit-card-head">
                 <h3>Games waiting and technical details</h3>
                 {% if c.missing %}<span class="badge badge-warn">{{ n(c.missing) }} waiting on raw play-by-play</span>{% endif %}

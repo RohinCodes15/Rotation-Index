@@ -32,6 +32,9 @@
     --bad: #b42318;
     --bad-bg: #fdecea;
     --neutral-bg: #eef1f5;
+    --good-line: #bfe3cf;
+    --wait-line: #f0d9a2;
+    --bad-line: #f5c2bd;
 
     /* Type */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -339,10 +342,18 @@ code {
     font-variant-numeric: tabular-nums;
 }
 
-.badge-ok { color: var(--good); background: var(--good-bg); border-color: #bfe3cf; }
-.badge-warn { color: var(--wait); background: var(--wait-bg); border-color: #f0d9a2; }
-.badge-bad { color: var(--bad); background: var(--bad-bg); border-color: #f5c2bd; }
-.badge-muted { color: var(--muted); background: var(--neutral-bg); border-color: var(--border); }
+/* Status system: one class per state sets --state (text, accents), --state-bg (tints)
+   and --state-line (borders). Components read these, so every state looks the same everywhere. */
+.state-good, .badge-ok { --state: var(--good); --state-bg: var(--good-bg); --state-line: var(--good-line); }
+.state-wait, .badge-warn { --state: var(--wait); --state-bg: var(--wait-bg); --state-line: var(--wait-line); }
+.state-bad, .badge-bad { --state: var(--bad); --state-bg: var(--bad-bg); --state-line: var(--bad-line); }
+.state-neutral, .badge-muted { --state: var(--muted); --state-bg: var(--neutral-bg); --state-line: var(--border); }
+
+.badge-ok, .badge-warn, .badge-bad, .badge-muted {
+    color: var(--state);
+    background: var(--state-bg);
+    border-color: var(--state-line);
+}
 
 /* Panel: every top-level section shares one card style. */
 main > section {
@@ -368,13 +379,38 @@ main > section.notice {
     border-left: 4px solid var(--navy-700);
 }
 
-main > section.notice-warn,
-.audit .notice {
+main > section.notice-warn {
     border-left: 4px solid var(--wait);
 }
 
 main > section.notice-warn {
     background: #fffaf0;
+}
+
+main > section.notice-ok {
+    background: #f4fbf7;
+    border-left-color: var(--good);
+}
+
+/* Callout: a state-tinted message block (readiness, hidden-estimate explanations). */
+.callout {
+    margin: var(--s4) 0;
+    padding: var(--s3) var(--s4);
+    color: var(--text);
+    background: var(--state-bg);
+    border: 1px solid var(--state-line);
+    border-left: 4px solid var(--state);
+    border-radius: var(--radius-sm);
+}
+
+.callout > summary,
+.callout > h3 {
+    color: var(--state);
+}
+
+.callout p,
+.callout li {
+    color: var(--text);
 }
 
 /* Overview: KPI strip of four cells. */
@@ -385,29 +421,42 @@ main > section.overview {
 
 .overview-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 1px;
     margin: 0;
     background: var(--border);
 }
 
+/* Each card's state shows as a top rule and a dot by its label; the value and detail say it in words. */
 .overview-card {
     min-width: 0;
     padding: var(--s5);
     background: var(--surface);
-    border-top: 3px solid var(--navy-700);
+    border-top: 4px solid var(--state, var(--navy-700));
 }
 
 .overview-model {
-    border-top-color: var(--red-600);
+    background: var(--state-bg, var(--surface));
 }
 
 .overview-card dt {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: var(--tracking-caps);
     text-transform: uppercase;
+}
+
+.overview-card dt::before {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    background: var(--state, var(--navy-700));
+    border-radius: 50%;
 }
 
 .overview-card dd {
@@ -432,13 +481,19 @@ main > section.overview {
 }
 
 .overview-model .overview-value {
+    color: var(--state, var(--navy-900));
     font-size: var(--text-lg);
     line-height: 1.6;
 }
 
-@media (max-width: 900px) {
+/* Two metric columns, with the model verdict on its own full-width row. */
+@media (max-width: 1000px) {
     .overview-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .overview-model {
+        grid-column: 1 / -1;
     }
 }
 
@@ -570,8 +625,8 @@ tbody tr:hover {
     letter-spacing: 0.04em;
 }
 
-.stale-tag, .missing-tag { color: var(--wait); background: var(--wait-bg); border-color: #f0d9a2; }
-.unverifiable-tag { color: var(--bad); background: var(--bad-bg); border-color: #f5c2bd; }
+.stale-tag, .missing-tag { color: var(--wait); background: var(--wait-bg); border-color: var(--wait-line); }
+.unverifiable-tag { color: var(--bad); background: var(--bad-bg); border-color: var(--bad-line); }
 
 /* Forms */
 form {
@@ -649,12 +704,21 @@ input {
     font-size: var(--text-lg);
 }
 
+/* Season progress: a 14px track with hairline gaps between segments; the legend repeats every count in text. */
 .progress {
     display: flex;
-    height: 10px;
-    margin: var(--s2) 0;
+    gap: 2px;
+    height: 14px;
+    margin: var(--s3) 0;
     overflow: hidden;
+    background: var(--track);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-pill);
+}
+
+/* The empty track is "not cached"; its legend key uses the same fill and outline. */
+.audit-summary {
+    --track: #e6ebf2;
 }
 
 .bar {
@@ -663,41 +727,52 @@ input {
 
 .validated { background: var(--good); }
 .failed { background: var(--bad); }
-.progress, .missing { background: var(--border-strong); }
+.missing { background: var(--track); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+/* Legend stays inline text so each swatch sits with its label. */
+.legend {
+    font-variant-numeric: tabular-nums;
+    line-height: 1.9;
+}
 
 .key {
     display: inline-block;
     width: 10px;
     height: 10px;
-    margin: 0 var(--s1) 0 var(--s3);
+    margin: 0 6px 0 0;
     border-radius: 2px;
-    vertical-align: baseline;
+    vertical-align: -1px;
 }
 
-.legend .key:first-child {
-    margin-left: 0;
+.legend .key:not(:first-child) {
+    margin-left: var(--s4);
 }
 
 .audit .legend {
     margin-bottom: 0;
 }
 
-.audit .notice {
-    margin: var(--s4) 0;
-    padding: var(--s3) var(--s4);
-    background: #fffaf0;
-    border-radius: var(--radius-sm);
-}
-
-.audit .notice h3 {
+.callout h3 {
     margin-bottom: var(--s2);
 }
 
-/* Audit subsections are divided by rules rather than nested cards. */
+.callout ul {
+    margin-bottom: var(--s2);
+}
+
+.callout details {
+    background: rgba(255, 255, 255, 0.65);
+    border-color: var(--state-line);
+}
+
+/* Audit sub-panels: a left rule in the panel's state, header row with title and status badge. */
 .audit-card {
-    margin-top: var(--s5);
-    padding-top: var(--s5);
-    border-top: 1px solid var(--border);
+    margin-top: var(--s4);
+    padding: var(--s4) var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--state, var(--border-strong));
+    border-radius: var(--radius-sm);
 }
 
 .audit-card-head {
@@ -706,7 +781,7 @@ input {
     align-items: center;
     justify-content: space-between;
     gap: var(--s1) var(--s3);
-    margin-bottom: var(--s2);
+    margin-bottom: var(--s3);
 }
 
 .audit ul {
@@ -743,20 +818,49 @@ details[open] {
     background: var(--surface-2);
 }
 
-details[open] summary {
+details[open] > summary {
     margin-bottom: var(--s2);
 }
 
+/* Disclosure marker: a CSS chevron that turns when open, replacing the browser triangle. */
 summary {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
     min-height: 32px;
     padding: var(--s1) 0;
     color: var(--navy-700);
     cursor: pointer;
     font-weight: 600;
+    list-style: none;
+}
+
+summary::-webkit-details-marker {
+    display: none;
+}
+
+summary::before {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    margin: 0 2px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform var(--duration) ease;
+}
+
+details[open] > summary::before {
+    transform: rotate(45deg);
 }
 
 summary:hover {
     color: var(--navy-900);
+}
+
+.callout > summary:hover {
+    color: var(--state);
 }
 
 .failures code,
