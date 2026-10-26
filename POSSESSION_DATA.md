@@ -71,7 +71,7 @@ starter" rule, and Pritchard's `4:60` display is not used. Locally `0022500458`,
 (`https://statsdmz.nba.com/pdfs/20260107/20260107_ORLBKN_book.pdf`, user-supplied,
 not fetched here): Nets starters at 5:00 of 1st OT are Z. Williams, M. Porter Jr.,
 D. Sharpe, N. Clowney (`1641730`) and E. Dëmin, matching pbpstats' four plus
-Clowney. It normalizes locally; production audit not rerun since this change.
+Clowney. Audited in the third rerun below.
 Original diagnosis:
 
 - `0022500147`: not a parser bug. Team totals agree (DET 122, DAL 110) and the
@@ -114,6 +114,16 @@ official finals, apply no other correction, and have five distinct players per
 side on every eligible possession. A before/after SHA-256 comparison changed only
 those three normalized games and `status.json`: raw play-by-play, the manifest
 and all estimate and diagnostics outputs are byte-identical, and none were created.
+
+**Third rebuild and offline audit rerun, 2026-10-25 (after the BKN gamebook
+correction):** `--rebuild-all` (rebuilt 1, unchanged 1,229, failed 0) then
+`--offline`, local files only, no download, no fit. **All 1,230 games validated**,
+0 failed, 0 missing; 248,157 possession segments, 246,121 counted, 233,198
+model-eligible; `complete` is true. Rebuilt `0022500521` scores ORL 104, BKN 103
+(the official final) with no other correction applied. A before/after SHA-256
+comparison changed only that normalized game and `status.json`: raw play-by-play,
+the manifest and all estimate and diagnostics outputs are byte-identical, and none
+were created. The model has not been fit.
 
 A separate three-game, test-only 2025–26 manifest exercises successful gated
 publication entirely in a temporary directory. Its dashboard displays possession
