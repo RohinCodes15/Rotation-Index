@@ -16,7 +16,6 @@ REAL_PBP = Path(__file__).parent / "data/cache/possessions/pbpstats/pbp"
 HOME, AWAY = 1, 2
 BLOCKERS = ("0022500147", "0022500458", "0022500521", "0022500550",
             "0022500637", "0022501029", "0022501044")
-UNRESOLVED = ("0022500521",)  # BKN OT1: official box score shows no data
 EVIDENCE = json.loads((Path(__file__).parent / "fixtures/official_evidence_2025-26.json").read_text())["games"]
 
 
@@ -142,21 +141,33 @@ class RealOvertimeGamesTests(unittest.TestCase):
         starters = {(g["game_id"], g["period"], g["team_id"]): g for g in EVIDENCE if g["fact"] == "period_starter"}
         resolved = {k for k, g in starters.items() if g["status"] == "resolved"}
         self.assertEqual(set(pl.VERIFIED_PERIOD_STARTERS), resolved)
-        self.assertNotIn(("0022500521", 5, 1610612751), pl.VERIFIED_PERIOD_STARTERS)  # BKN unresolved
         for key, entry in pl.VERIFIED_PERIOD_STARTERS.items():
             with self.subTest(key=key):
                 g = starters[key]
-                rows = {pid: minutes for _, pid, minutes in g["supporting"]["visible_rows_OT1"] if pid}
                 self.assertEqual(entry["player"], g["person_id"])
-                self.assertEqual(rows[entry["player"]], "5:00")  # never a "4:60" display
                 self.assertNotIn(entry["player"], entry["parser_four"])
                 self.assertEqual(len(set(entry["parser_four"])), 4)
-                # Every parser starter is on the official OT1 table: named there, or one
-                # of the rows whose player id the fixture did not record.
-                unnamed_rows = sum(pid is None for _, pid, _ in g["supporting"]["visible_rows_OT1"])
-                self.assertLessEqual(len(set(entry["parser_four"]) - set(rows)), unnamed_rows)
                 if g["period_starters"]:  # full official five: four plus the player, exactly
                     self.assertEqual(sorted([*entry["parser_four"], entry["player"]]), sorted(g["period_starters"]))
+                if "visible_rows_OT1" in g["supporting"]:
+                    rows = {pid: minutes for _, pid, minutes in g["supporting"]["visible_rows_OT1"] if pid}
+                    self.assertEqual(rows[entry["player"]], "5:00")  # never a "4:60" display
+                    # Every parser starter is on the official OT1 table: named there, or one
+                    # of the rows whose player id the fixture did not record.
+                    unnamed_rows = sum(pid is None for _, pid, _ in g["supporting"]["visible_rows_OT1"])
+                    self.assertLessEqual(len(set(entry["parser_four"]) - set(rows)), unnamed_rows)
+                else:  # no box-score minutes: only an explicit official five is accepted
+                    self.assertEqual(len(g["period_starters"]), 5)
+
+    def test_bkn_gamebook_starters_match_the_local_feed(self):
+        g = next(g for g in EVIDENCE if g["game_id"] == "0022500521" and g["fact"] == "period_starter")
+        self.assertEqual(g["source_url"], "https://statsdmz.nba.com/pdfs/20260107/20260107_ORLBKN_book.pdf")
+        ids = g["supporting"]["player_ids_from_local_feed"]
+        self.assertEqual(sorted(ids.values()), sorted(g["period_starters"]))
+        feed = json.loads((pl.RAW / "pbp" / "live_0022500521.json").read_text())["game"]["actions"]
+        on_bkn = {e["personId"] for e in feed if e.get("teamId") == 1610612751}
+        self.assertLessEqual(set(g["period_starters"]), on_bkn)  # every id is a local BKN player
+        self.assertEqual(ids["Noah Clowney"], 1641730)
 
     def test_verified_ot_starter_completes_exactly_that_team(self):
         for (gid, period, team), entry in pl.VERIFIED_PERIOD_STARTERS.items():
@@ -193,14 +204,14 @@ class RealOvertimeGamesTests(unittest.TestCase):
                     pl.normalize(season.GAMES[gid])
                 self.assertIs(LiveStartOfPeriod.get_period_starters, self.original)
 
-    def test_only_unresolved_bkn_game_remains_a_blocker(self):
+    def test_no_former_blocker_remains(self):
         failed = []
         for gid in BLOCKERS:
             try:
                 pl.normalize(season.GAMES[gid])
             except (ValueError, InvalidNumberOfStartersException):
                 failed.append(gid)
-        self.assertEqual(failed, list(UNRESOLVED))
+        self.assertEqual(failed, [])
 
     def test_verified_home_team_validates_the_neutral_site_game(self):
         game = season.GAMES["0022500147"]

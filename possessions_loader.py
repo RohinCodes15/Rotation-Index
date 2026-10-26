@@ -63,10 +63,12 @@ VERIFIED_CORRECTIONS = (
 
 _LIVE_BOXSCORE = "https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveData/boxscore/boxscore_{}.json"
 
-# Official OT1 box-score evidence (fixtures/official_evidence_2025-26.json: the player's
-# OT1 MIN is 5:00) for a starter no period-5 action names. Each entry completes only
-# that exact game/period/team, and only when pbpstats found exactly `parser_four`.
+# Official evidence (fixtures/official_evidence_2025-26.json: OT1 box-score MIN 5:00,
+# or gamebook OT starters) for a starter no period-5 action names. Each entry completes
+# only that exact game/period/team, and only when pbpstats found exactly `parser_four`.
 VERIFIED_PERIOD_STARTERS = {
+    ("0022500521", 5, 1610612751): {"player": 1641730,  # Noah Clowney, BKN (gamebook)
+                                    "parser_four": (1629008, 1630533, 1630549, 1642856)},
     ("0022500458", 5, 1610612763): {"player": 1630583,  # Santi Aldama, MEM
                                     "parser_four": (1628991, 1629630, 1642377, 1642907)},
     ("0022500458", 5, 1610612755): {"player": 1629656,  # Quentin Grimes, PHI

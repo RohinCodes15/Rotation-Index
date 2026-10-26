@@ -122,24 +122,42 @@
     {
       "game_id": "0022500521",
       "fact": "period_starter",
-      "status": "unresolved",
+      "status": "resolved",
       "period": 5,
       "team_id": 1610612751,
       "team": "BKN",
       "person_id": 1641730,
       "player": "Noah Clowney",
-      "source_url": "https://www.nba.com/game/0022500521/box-score?period=OT1",
-      "evidence_basis": null,
-      "period_starters": null,
+      "source_url": "https://statsdmz.nba.com/pdfs/20260107/20260107_ORLBKN_book.pdf",
+      "evidence_basis": "Official NBA gamebook: Nets starters at 5:00 of 1st OT, as supplied by the user on 2026-10-25 (not fetched from this environment). Explicit period-start lineup; no minutes used.",
+      "period_starters": [
+        1630533,
+        1629008,
+        1630549,
+        1641730,
+        1642856
+      ],
       "supporting": {
-        "visible_rows_OT1": [],
-        "screenshot": "fixtures/evidence/0022500521_OT1_no_data.jpg",
-        "attempted_sources": [
+        "gamebook_OT1_starters_at_5:00": [
+          "Ziaire Williams",
+          "Michael Porter Jr.",
+          "Day'Ron Sharpe",
+          "Noah Clowney",
+          "Egor D\u00ebmin"
+        ],
+        "player_ids_from_local_feed": {
+          "Ziaire Williams": 1630533,
+          "Michael Porter Jr.": 1629008,
+          "Day'Ron Sharpe": 1630549,
+          "Noah Clowney": 1641730,
+          "Egor D\u00ebmin": 1642856
+        },
+        "attempted_sources_without_lineup": [
           "https://www.nba.com/game/0022500521/box-score?period=OT1",
           "https://www.nba.com/game/0022500521/box-score?range=28800-28900"
-        ]
-      },
-      "unresolved_reason": "NBA.com OT1 box score shows 'NO BOX SCORE DATA AVAILABLE' (retried 2026-10-25; All Periods loads). The box score Range Filter (range=28800-28900, first 10 s of OT1) could not be applied: the slider did not respond and loading that URL directly shows 'Content Unavailable'. No official source viewed exposes the period-5 lineup."
+        ],
+        "screenshot": "fixtures/evidence/0022500521_OT1_no_data.jpg"
+      }
     },
     {
       "game_id": "0022500637",
@@ -252,6 +270,7 @@
   ],
   "sources": {
     "home_team": "official NBA live box score (liveData/boxscore)",
-    "period_starter": "NBA.com game box score, period filter OT1, viewed in browser 2026-10-25"
+    "period_starter": "NBA.com game box score, period filter OT1, viewed in browser 2026-10-25",
+    "period_starter_0022500521": "official NBA gamebook PDF (statsdmz.nba.com), user-supplied"
   }
 }
