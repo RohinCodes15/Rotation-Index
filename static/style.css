@@ -657,11 +657,30 @@ main > section:is(#player-estimates, #lineup-estimates) {
     vertical-align: middle;
 }
 
+/* Rank: three-digit ranks stay on one line instead of wrapping digit by digit. */
 .players td:first-child {
     width: 3em;
     color: var(--navy-900);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* On wider screens the player table scrolls inside its region so column headers stay in view.
+   Phones keep normal page scrolling, which avoids a nested scroll trap. */
+@media (min-width: 641px) {
+    .table-wrap:has(> .players) {
+        max-height: 75vh;
+        overflow-y: auto;
+    }
+
+    .players thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        border-bottom: 0;
+        box-shadow: inset 0 -2px 0 var(--navy-700);
+    }
 }
 
 .players thead th:nth-child(n+3),
@@ -738,8 +757,34 @@ main > section:is(#player-estimates, #lineup-estimates) {
     border-radius: var(--radius);
 }
 
+/* Empty filter result: the message leads, the way out is a clear secondary button. */
 .empty-state p {
-    margin: 0 0 var(--s2);
+    margin: 0 auto var(--s2);
+}
+
+.empty-state p:first-child {
+    color: var(--navy-900);
+    font-weight: 600;
+}
+
+.empty-state a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: var(--s2);
+    padding: 0 var(--s4);
+    color: var(--navy-700);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    text-decoration: none;
+    transition: border-color var(--duration) ease, color var(--duration) ease;
+}
+
+.empty-state a:hover {
+    color: var(--navy-900);
+    border-color: var(--navy-700);
 }
 
 .empty-state > :last-child {
@@ -835,6 +880,11 @@ button:hover {
 
 input {
     width: 100px;
+}
+
+/* Names need room; the possession minimum stays compact. */
+input[type="search"] {
+    width: 16rem;
 }
 
 /* Possession cache audit: track is "not cached"; drawn segments are validated/failed. */
