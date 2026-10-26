@@ -20,6 +20,8 @@
         {% set season = (src.season or "2025-26")|replace("-", "–") %}
         {% set season_type = src.season_type or "Regular Season" %}
         {% macro count(value) %}{{ "{:,}".format(value) if value is number else "–" }}{% endmacro %}
+        {# Signed value plus a bar from zero; width is |value| against the largest |value| shown in the table. #}
+        {% macro impact(value, scale, net=false) %}<td class="impact{{ ' net' if net }} {{ 'pos' if value > 0 else 'neg' }}"><span class="impact-value">{{ "%+.2f"|format(value) }}</span><span class="bar" aria-hidden="true"><span style="width: {{ '%.1f'|format(50 * value|abs / (scale or 1)) }}%"></span></span></td>{% endmacro %}
         {# Model cell mirrors the overview's model-status branches. #}
         {% if status %}{% set model_state = "Lineup total" %}
         {% elif not audit %}{% set model_state = "No data" %}
@@ -331,7 +333,7 @@
         {% endif %}
 
         {% if possession_model and possession_players is not none %}
-        <section id="player-estimates">
+        <section id="player-estimates" class="results">
             <h2>Possession-level player estimates</h2>
             <p><strong>Unit:</strong> points per 100 possessions compared with an average player, holding the other nine players on the floor fixed.
                 Offense is points added on offense. Defense is points prevented on defense, so positive is good on both ends. Net = offense + defense.</p>
@@ -363,25 +365,29 @@
             {% elif selected_id is not none %}
             <p>No player with NBA player ID {{ selected_id }} has saved estimates.</p>
             {% endif %}
-            {% if possession_players %}<div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">
+            {% if possession_players %}{% set scale = (possession_players|map(attribute="offense_per_100")|list + possession_players|map(attribute="defense_per_100")|list + possession_players|map(attribute="net_per_100")|list)|map("abs")|max %}
+            <p class="results-summary">{{ "{:,}".format(possession_players|length) }} {{ "player" if possession_players|length == 1 else "players" }} with at least {{ "{:,}".format(min_poss) }} on-court possessions{% if query %} matching “{{ query }}”{% endif %}, ranked by net. Green is above average, red below; bars run from 0 and are scaled to the largest value shown (±{{ "%.2f"|format(scale) }}).</p>
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Possession-level player estimates table">
             <table class="players possession-players">
                 <thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">Off. poss.</th><th scope="col">Def. poss.</th><th scope="col">Offense</th><th scope="col">Defense</th><th scope="col">Net</th></tr></thead>
                 <tbody>
                 {% for p in possession_players %}
                     <tr>
                         <td>{{ p.rank }}</td>
-                        <td><a href="{{ url_for('home', min_poss=min_poss, q=query or None, player=p.player_id, _anchor='player-estimates') }}">{% if p.name %}<span title="NBA player ID {{ p.player_id }}">{{ p.name }}</span>{% else %}Player ID {{ p.player_id }}{% endif %}</a></td>
+                        <td><a href="{{ url_for('home', min_poss=min_poss, q=query or None, player=p.player_id, _anchor='player-estimates') }}">{% if p.name %}<span title="NBA player ID {{ p.player_id }}">{{ p.name }}</span></a><span class="pid">ID {{ p.player_id }}</span></td>{% else %}Player ID {{ p.player_id }}</a></td>{% endif %}
                         <td>{{ "{:,}".format(p.offense_possessions) }}</td>
                         <td>{{ "{:,}".format(p.defense_possessions) }}</td>
-                        {% for value in (p.offense_per_100, p.defense_per_100, p.net_per_100) %}
-                        <td class="{{ 'pos' if value > 0 else 'neg' }}">{{ "%+.2f"|format(value) }}</td>
-                        {% endfor %}
+                        {{ impact(p.offense_per_100, scale) }}
+                        {{ impact(p.defense_per_100, scale) }}
+                        {{ impact(p.net_per_100, scale, net=true) }}
                     </tr>
                 {% endfor %}
                 </tbody>
             </table>
             </div>{% endif %}
-            {% if not possession_players %}{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} on-court possessions. Try another name or lower the minimum.</p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} on-court possessions. Lower the minimum to see more.</p>{% endif %}{% endif %}
+            {% if not possession_players %}<div class="empty-state" role="status">{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} on-court possessions. Try another name or lower the minimum.</p>
+                <p class="small"><a href="{{ url_for('home', min_poss=min_poss, _anchor='player-estimates') }}">Clear the search</a></p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} on-court possessions. Lower the minimum to see more.</p>
+                <p class="small"><a href="{{ url_for('home', min_poss=0, _anchor='player-estimates') }}">Show every player</a></p>{% endif %}</div>{% endif %}
         </section>
 
         <section>
@@ -462,7 +468,7 @@
         {% endif %}
 
         {% if status and possession_status is none and model and players is not none %}
-        <section id="lineup-estimates">
+        <section id="lineup-estimates" class="results">
             <h2>Lineup-total player estimates</h2>
             <p><strong>Unit:</strong> net points per 100 possessions compared with an average player, holding teammates and opponent team fixed.
                 +2.0 means the team was about 2 points per 100 possessions better with this player on the floor than with an average player instead.</p>
@@ -477,7 +483,9 @@
                 </label>
                 <button type="submit">Filter</button>
             </form>
-            {% if players %}<div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">
+            {% if players %}{% set scale = players|map(attribute="rapm")|map("abs")|max %}
+            <p class="results-summary">{{ "{:,}".format(players|length) }} {{ "player" if players|length == 1 else "players" }} with at least {{ "{:,}".format(min_poss) }} possessions on court{% if query %} matching “{{ query }}”{% endif %}. Green is above average, red below; bars run from 0 and are scaled to the largest value shown (±{{ "%.2f"|format(scale) }}).</p>
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Lineup-total player estimates table">
             <table class="players">
                 <thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">Possessions</th><th scope="col">Estimate (per 100)</th></tr></thead>
                 <tbody>
@@ -486,13 +494,15 @@
                         <td>{{ loop.index }}</td>
                         <td>{{ p.name }}{% if p.low_sample %} <span class="tag">low sample</span>{% endif %}</td>
                         <td>{{ "{:,}".format(p.possessions) }}</td>
-                        <td class="{{ 'pos' if p.rapm > 0 else 'neg' }}">{{ "%+.2f"|format(p.rapm) }}</td>
+                        {{ impact(p.rapm, scale, net=true) }}
                     </tr>
                 {% endfor %}
                 </tbody>
             </table>
             </div>{% endif %}
-            {% if not players %}{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} possessions on court. Try another name or lower the minimum.</p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} possessions on court. Lower the minimum to see more.</p>{% endif %}{% endif %}
+            {% if not players %}<div class="empty-state" role="status">{% if query %}<p>No players matching “{{ query }}” have at least {{ "{:,}".format(min_poss) }} possessions on court. Try another name or lower the minimum.</p>
+                <p class="small"><a href="{{ url_for('home', min_poss=min_poss, _anchor='lineup-estimates') }}">Clear the search</a></p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} possessions on court. Lower the minimum to see more.</p>
+                <p class="small"><a href="{{ url_for('home', min_poss=0, _anchor='lineup-estimates') }}">Show every player</a></p>{% endif %}</div>{% endif %}
         </section>
 
         <section class="notice">

@@ -599,6 +599,112 @@ tbody tr:hover {
 
 .pos { color: var(--good); font-weight: 600; }
 .players .neg, .player-detail .neg { color: var(--bad); font-weight: 600; }
+/* Player results: the page centerpiece. Net leads the hierarchy; bars only restate the printed value. */
+main > section.results {
+    border-top: 4px solid var(--navy-700);
+    box-shadow: var(--shadow);
+}
+
+.results-summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.players tbody tr:nth-child(even) {
+    background: var(--surface-2);
+}
+
+.players td {
+    vertical-align: middle;
+}
+
+.players td:first-child {
+    width: 3em;
+    color: var(--navy-900);
+    font-weight: 700;
+}
+
+.players thead th:nth-child(n+3),
+.players td:nth-child(n+3) {
+    text-align: right;
+}
+
+.players a {
+    text-decoration: none;
+}
+
+.players a:hover {
+    text-decoration: underline;
+}
+
+.pid {
+    display: block;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.impact-value {
+    display: block;
+}
+
+.impact.net {
+    background: var(--navy-100);
+}
+
+.impact.net .impact-value {
+    font-size: var(--text-md);
+    font-weight: 800;
+}
+
+.bar {
+    position: relative;
+    display: block;
+    width: 80px;
+    height: 4px;
+    margin: var(--s1) 0 0 auto;
+    background: var(--neutral-bg);
+    border-radius: var(--radius-pill);
+}
+
+.bar::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    left: 50%;
+    width: 1px;
+    height: 8px;
+    background: var(--border-strong);
+}
+
+.bar > span {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: var(--radius-pill);
+}
+
+.pos .bar > span { left: 50%; background: var(--good); }
+.neg .bar > span { right: 50%; background: var(--bad); }
+
+.empty-state {
+    margin: var(--s4) 0;
+    padding: var(--s5);
+    text-align: center;
+    background: var(--surface-2);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+}
+
+.empty-state p {
+    margin: 0 0 var(--s2);
+}
+
+.empty-state > :last-child {
+    margin-bottom: 0;
+}
+
 .player-detail {
     margin: var(--s4) 0;
     padding: var(--s4) var(--s5);
