@@ -534,7 +534,7 @@ tbody tr {
     transition: background-color var(--duration) ease;
 }
 
-tbody tr:hover {
+tbody tr:is(:hover, :focus-within) {
     background: var(--navy-100);
     outline: 1px solid var(--border-strong);
     outline-offset: -1px;
@@ -600,7 +600,7 @@ tbody tr:hover {
 .pos { color: var(--good); font-weight: 600; }
 .players .neg, .player-detail .neg { color: var(--bad); font-weight: 600; }
 /* Player results: the page centerpiece. Net leads the hierarchy; bars only restate the printed value. */
-main > section.results {
+main > section:is(#player-estimates, #lineup-estimates) {
     border-top: 4px solid var(--navy-700);
     box-shadow: var(--shadow);
 }
@@ -608,10 +608,6 @@ main > section.results {
 .results-summary {
     color: var(--muted);
     font-size: var(--text-sm);
-}
-
-.players tbody tr:nth-child(even) {
-    background: var(--surface-2);
 }
 
 .players td {
@@ -658,7 +654,7 @@ main > section.results {
     font-weight: 800;
 }
 
-.bar {
+.impact .bar {
     position: relative;
     display: block;
     width: 80px;
@@ -668,7 +664,7 @@ main > section.results {
     border-radius: var(--radius-pill);
 }
 
-.bar::before {
+.impact .bar::before {
     content: "";
     position: absolute;
     top: -2px;
@@ -678,15 +674,15 @@ main > section.results {
     background: var(--border-strong);
 }
 
-.bar > span {
+.impact .bar > span {
     position: absolute;
     top: 0;
     bottom: 0;
     border-radius: var(--radius-pill);
 }
 
-.pos .bar > span { left: 50%; background: var(--good); }
-.neg .bar > span { right: 50%; background: var(--bad); }
+.impact.pos .bar > span { left: 50%; background: var(--good); }
+.impact.neg .bar > span { right: 50%; background: var(--bad); }
 
 .empty-state {
     margin: var(--s4) 0;
@@ -765,7 +761,7 @@ form input {
 }
 
 input, button {
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 var(--s3);
     color: var(--text);
     background: var(--surface);
@@ -970,6 +966,7 @@ input {
 }
 
 .report-stats {
+    align-items: start;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--s4);
@@ -1167,6 +1164,11 @@ summary:hover {
     background: var(--surface-2);
 }
 
+/* Restate hover after the stripe, which would otherwise win on specificity. */
+:is(.facts, .players) tbody tr:is(:hover, :focus-within) {
+    background: var(--navy-100);
+}
+
 .inputs td,
 .players td:nth-child(n+3),
 .players th:nth-child(n+3) {
@@ -1177,8 +1179,63 @@ details > :last-child {
     margin-bottom: 0;
 }
 
+/* Motion: one short entry, no loops. Each animation starts from a visible end state, so content never stays hidden. */
+html {
+    scroll-behavior: smooth;
+}
+
+@keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+}
+
+@keyframes fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes grow {
+    from { transform: scaleX(0); }
+}
+
+.masthead,
+main > section {
+    animation: rise 260ms ease-out both;
+}
+
+/* Stagger the first sections only; later ones are below the fold on arrival. */
+main > section:nth-of-type(1) { animation-delay: 60ms; }
+main > section:nth-of-type(2) { animation-delay: 120ms; }
+main > section:nth-of-type(3) { animation-delay: 180ms; }
+main > section:nth-of-type(n+4) { animation-delay: 240ms; }
+
+details[open] > :not(summary) {
+    animation: fade-in 200ms ease-out;
+}
+
+summary {
+    min-height: 44px;
+}
+
+.progress .bar {
+    transform-origin: left;
+    animation: grow 300ms ease-out 200ms both;
+}
+
+.impact .bar > span {
+    animation: grow 300ms ease-out 200ms both;
+}
+
+.impact.pos .bar > span { transform-origin: left; }
+.impact.neg .bar > span { transform-origin: right; }
+
 @media (prefers-reduced-motion: reduce) {
-    * {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        animation: none !important;
         transition: none !important;
     }
 }

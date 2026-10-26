@@ -335,7 +335,7 @@
         {% endif %}
 
         {% if possession_model and possession_players is not none %}
-        <section id="player-estimates" class="results">
+        <section id="player-estimates">
             <h2>Possession-level player estimates</h2>
             <p><strong>Unit:</strong> points per 100 possessions compared with an average player, holding the other nine players on the floor fixed.
                 Offense is points added on offense. Defense is points prevented on defense, so positive is good on both ends. Net = offense + defense.</p>
@@ -445,7 +445,7 @@
                     {% else %}Mixed: Ridge is lower on {{ "MAE" if ridge.mae < base.mae else "RMSE" }} only.{% endif %}</strong></p>
                 <p class="small">The baseline predicts the training-set average for every possession and ignores who is on the court. Beating it means knowing the lineup helped the predictions.</p>
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Ridge versus baseline error table">
             <table class="facts compare">
                 <thead><tr><th scope="col">Metric</th><th scope="col">Ridge</th><th scope="col">Baseline (training average)</th></tr></thead>
                 <tbody>
@@ -499,7 +499,7 @@
         {% endif %}
 
         {% if status and possession_status is none and model and players is not none %}
-        <section id="lineup-estimates" class="results">
+        <section id="lineup-estimates">
             <h2>Lineup-total player estimates</h2>
             <p><strong>Unit:</strong> net points per 100 possessions compared with an average player, holding teammates and opponent team fixed.
                 +2.0 means the team was about 2 points per 100 possessions better with this player on the floor than with an average player instead.</p>
