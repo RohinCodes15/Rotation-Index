@@ -1,23 +1,70 @@
-/* One palette: neutrals plus three states (good, waiting, failed). Orange is the focus accent only. */
+/*
+ * Rotation Index visual foundation.
+ * Brand: NBA navy and red on white, charcoal text. Orange is reserved for keyboard focus.
+ * States (good, waiting, failed) are separate from brand colors and always paired with text.
+ */
 :root {
-    color-scheme: dark;
-    --bg: #0d131c;
-    --surface: #131b26;
-    --surface-2: #19222f;
-    --border: #273242;
-    --text: #e4e9f0;
-    --muted: #8e9aab;
-    --good: #3fb68b;
-    --wait: #d9a441;
-    --bad: #e5534b;
-    --orange: #f08a24;
+    color-scheme: light;
+
+    /* Brand */
+    --navy-900: #0b1f45;
+    --navy-700: #17408b;
+    --navy-100: #e6ecf7;
+    --red-600: #c8102e;
+    --orange: #d64d00;
+
+    /* Neutrals */
+    --white: #ffffff;
+    --bg: #f4f6fa;
+    --surface: var(--white);
+    --surface-2: #f7f9fc;
+    --charcoal: #1d2430;
+    --text: var(--charcoal);
+    --muted: #586374;
+    --border: #dde3ec;
+    --border-strong: #b8c2d1;
+
+    /* States: text color on a light tint, both at least 4.5:1 against white */
+    --good: #17703f;
+    --good-bg: #e7f5ee;
+    --wait: #8a5a00;
+    --wait-bg: #fdf3dc;
+    --bad: #b42318;
+    --bad-bg: #fdecea;
+    --neutral-bg: #eef1f5;
+
+    /* Type */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 15px;
+    --text-md: 17px;
+    --text-lg: 20px;
+    --text-xl: 28px;
+    --text-2xl: 32px;
+    --leading-tight: 1.25;
+    --leading-body: 1.55;
+    --tracking-caps: 0.06em;
+
+    /* Spacing (4px base) */
     --s1: 4px;
     --s2: 8px;
     --s3: 12px;
     --s4: 16px;
     --s5: 24px;
     --s6: 32px;
-    --radius: 4px;
+    --s7: 48px;
+
+    /* Shape and depth */
+    --page-width: 1200px;
+    --radius-sm: 4px;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --radius-pill: 999px;
+    --shadow-sm: 0 1px 2px rgba(11, 31, 69, 0.06);
+    --shadow: 0 1px 3px rgba(11, 31, 69, 0.08), 0 4px 12px rgba(11, 31, 69, 0.05);
+    --duration: 150ms;
 }
 
 * {
@@ -28,44 +75,65 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: var(--text-base)/var(--leading-body) var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
+/* Page grid: one readable column of panels with a shared gap. */
 main {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--s4);
-    max-width: 1040px;
+    gap: var(--s5);
+    max-width: var(--page-width);
     margin: 0 auto;
-    padding: var(--s5) var(--s4) var(--s6);
+    padding: var(--s5) var(--s5) var(--s7);
 }
 
+/* Typography hierarchy */
 h1, h2, h3 {
     margin: 0;
-    color: var(--text);
-    line-height: 1.3;
+    color: var(--navy-900);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+    letter-spacing: -0.01em;
 }
 
 h2 {
-    margin-bottom: var(--s3);
-    font-size: 17px;
-    font-weight: 600;
+    margin-bottom: var(--s4);
+    font-size: var(--text-lg);
+}
+
+/* A short red rule marks each section title. */
+main > section h2::before {
+    content: "";
+    display: block;
+    width: 28px;
+    height: 3px;
+    margin-bottom: var(--s2);
+    background: var(--red-600);
+    border-radius: var(--radius-pill);
 }
 
 h3 {
-    font-size: 15px;
+    font-size: var(--text-md);
     font-weight: 600;
 }
 
 p {
+    max-width: 75ch;
     margin: 0 0 var(--s3);
     color: var(--muted);
 }
 
 a {
-    color: var(--text);
-    text-decoration-color: var(--muted);
+    color: var(--navy-700);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+
+a:hover {
+    color: var(--navy-900);
 }
 
 :focus-visible {
@@ -79,26 +147,31 @@ strong {
 }
 
 .small {
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 
 code {
     padding: 1px var(--s1);
-    color: var(--text);
-    background: var(--surface-2);
-    border-radius: 2px;
-    font-size: 0.92em;
+    color: var(--navy-900);
+    background: var(--navy-100);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.88em;
 }
 
-/* Header: name and season on the left, current data status on the right. */
+/* Masthead: navy band, red underline, status pill on the right. */
 .masthead {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    gap: var(--s2) var(--s4);
-    padding: 0 var(--s4) var(--s4);
-    border-bottom: 1px solid var(--border);
+    gap: var(--s3) var(--s5);
+    padding: var(--s5) var(--s5);
+    color: var(--white);
+    background: var(--navy-900);
+    border-bottom: 4px solid var(--red-600);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
 }
 
 .masthead > div,
@@ -109,36 +182,46 @@ code {
 }
 
 .masthead h1 {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    color: var(--white);
+    font-size: var(--text-2xl);
+    font-weight: 800;
+    letter-spacing: -0.02em;
 }
 
 .subtitle {
-    margin: 2px 0 0;
-    font-size: 13px;
+    margin: var(--s1) 0 0;
+    color: #c9d4e8;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    letter-spacing: 0.02em;
 }
 
-/* Status labels are colored text, not chips. */
+/* Status pill: tinted background with state-colored text, never color alone. */
 .badge {
-    font-size: 13px;
+    display: inline-block;
+    padding: 2px var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
     font-weight: 600;
+    line-height: 1.6;
     font-variant-numeric: tabular-nums;
 }
 
-.badge-ok { color: var(--good); }
-.badge-warn { color: var(--wait); }
-.badge-bad { color: var(--bad); }
-.badge-muted { color: var(--muted); }
+.badge-ok { color: var(--good); background: var(--good-bg); border-color: #bfe3cf; }
+.badge-warn { color: var(--wait); background: var(--wait-bg); border-color: #f0d9a2; }
+.badge-bad { color: var(--bad); background: var(--bad-bg); border-color: #f5c2bd; }
+.badge-muted { color: var(--muted); background: var(--neutral-bg); border-color: var(--border); }
 
-/* Sections share one panel style. */
+/* Panel: every top-level section shares one card style. */
 main > section {
     min-width: 0;
     margin: 0;
-    padding: var(--s4);
+    padding: var(--s5);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
     overflow-wrap: anywhere;
 }
 
@@ -148,17 +231,22 @@ main > section > :last-child,
     margin-bottom: 0;
 }
 
-/* Notices are neutral (limitations, next steps); only blocking states use the waiting color. */
+/* Notices: neutral for limitations and next steps; amber only when something blocks estimates. */
 main > section.notice {
-    border-left: 3px solid var(--muted);
+    background: var(--surface-2);
+    border-left: 4px solid var(--navy-700);
 }
 
 main > section.notice-warn,
 .audit .notice {
-    border-left: 3px solid var(--wait);
+    border-left: 4px solid var(--wait);
 }
 
-/* Overview: one stat strip divided into cells. */
+main > section.notice-warn {
+    background: #fffaf0;
+}
+
+/* Overview: KPI strip of four cells. */
 main > section.overview {
     padding: 0;
     overflow: hidden;
@@ -174,15 +262,20 @@ main > section.overview {
 
 .overview-card {
     min-width: 0;
-    padding: var(--s4);
+    padding: var(--s5);
     background: var(--surface);
+    border-top: 3px solid var(--navy-700);
+}
+
+.overview-model {
+    border-top-color: var(--red-600);
 }
 
 .overview-card dt {
     color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: var(--tracking-caps);
     text-transform: uppercase;
 }
 
@@ -192,25 +285,27 @@ main > section.overview {
 }
 
 .overview-value {
-    margin: var(--s1) 0;
-    font-size: 26px;
-    font-weight: 600;
+    margin: var(--s2) 0 var(--s1);
+    color: var(--navy-900);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    line-height: var(--leading-tight);
     font-variant-numeric: tabular-nums;
 }
 
 .overview-detail {
     margin: 0;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.45;
 }
 
 .overview-model .overview-value {
-    font-size: 20px;
+    font-size: var(--text-lg);
     line-height: 1.6;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
     .overview-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -222,7 +317,7 @@ main > section.overview {
     }
 }
 
-/* Tables */
+/* Tables: shared base, then fact lists and the player leaderboard. */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -237,17 +332,22 @@ th, td {
 }
 
 thead th {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    color: var(--navy-900);
+    background: var(--navy-100);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: var(--tracking-caps);
     text-transform: uppercase;
-    border-bottom-color: var(--muted);
+    border-bottom: 2px solid var(--navy-700);
+}
+
+tbody tr {
+    transition: background-color var(--duration) ease;
 }
 
 tbody tr:hover {
-    background: var(--surface-2);
-    outline: 1px solid var(--muted);
+    background: var(--navy-100);
+    outline: 1px solid var(--border-strong);
     outline-offset: -1px;
 }
 
@@ -274,6 +374,16 @@ tbody tr:hover {
     max-width: 100%;
     overflow-x: auto;
     margin: var(--s4) 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.table-wrap table {
+    margin: 0;
+}
+
+.table-wrap tbody tr:last-child td {
+    border-bottom: 0;
 }
 
 .players {
@@ -289,19 +399,39 @@ tbody tr:hover {
     font-variant-numeric: tabular-nums;
 }
 
-.pos { color: var(--good); }
-.players .neg, .player-detail .neg { color: #ed625a; }
-.player-detail { margin: var(--s4) 0; padding: var(--s4) 0; border-block: 1px solid var(--border); }
+.players td:first-child {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.players td:nth-child(2) {
+    font-weight: 600;
+}
+
+.pos { color: var(--good); font-weight: 600; }
+.players .neg, .player-detail .neg { color: var(--bad); font-weight: 600; }
+.player-detail {
+    margin: var(--s4) 0;
+    padding: var(--s4) var(--s5);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--navy-700);
+    border-radius: var(--radius);
+}
 .player-detail td { font-variant-numeric: tabular-nums; }
 .low { color: var(--muted); }
 
+/* Tags: compact uppercase labels inside lists. */
 .tag {
-    padding: 0 var(--s1);
+    display: inline-block;
+    padding: 0 6px;
     color: var(--muted);
+    background: var(--neutral-bg);
     border: 1px solid var(--border);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
+    line-height: 1.7;
 }
 
 .stale-tag, .missing-tag, .unverifiable-tag {
@@ -309,8 +439,8 @@ tbody tr:hover {
     letter-spacing: 0.04em;
 }
 
-.stale-tag, .missing-tag { color: var(--wait); }
-.unverifiable-tag { color: var(--bad); }
+.stale-tag, .missing-tag { color: var(--wait); background: var(--wait-bg); border-color: #f0d9a2; }
+.unverifiable-tag { color: var(--bad); background: var(--bad-bg); border-color: #f5c2bd; }
 
 /* Forms */
 form {
@@ -319,10 +449,17 @@ form {
     align-items: flex-end;
     gap: var(--s3);
     margin: var(--s4) 0;
+    padding: var(--s4);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 }
 
 form label {
     min-width: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
     line-height: 1.5;
 }
 
@@ -333,22 +470,31 @@ form input {
 }
 
 input, button {
-    min-height: 36px;
+    min-height: 40px;
     padding: 0 var(--s3);
     color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
     font: inherit;
+    transition: border-color var(--duration) ease, background-color var(--duration) ease;
+}
+
+input:hover {
+    border-color: var(--navy-700);
 }
 
 button {
+    color: var(--white);
+    background: var(--navy-700);
+    border-color: var(--navy-700);
     cursor: pointer;
     font-weight: 600;
 }
 
 button:hover {
-    border-color: var(--muted);
+    background: var(--navy-900);
+    border-color: var(--navy-900);
 }
 
 input {
@@ -368,15 +514,16 @@ input {
 }
 
 .audit .progress-label strong {
-    font-size: 20px;
+    color: var(--navy-900);
+    font-size: var(--text-lg);
 }
 
 .progress {
     display: flex;
-    height: 8px;
+    height: 10px;
     margin: var(--s2) 0;
     overflow: hidden;
-    border-radius: 2px;
+    border-radius: var(--radius-pill);
 }
 
 .bar {
@@ -385,13 +532,14 @@ input {
 
 .validated { background: var(--good); }
 .failed { background: var(--bad); }
-.progress, .missing { background: var(--muted); }
+.progress, .missing { background: var(--border-strong); }
 
 .key {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     margin: 0 var(--s1) 0 var(--s3);
+    border-radius: 2px;
     vertical-align: baseline;
 }
 
@@ -406,7 +554,8 @@ input {
 .audit .notice {
     margin: var(--s4) 0;
     padding: var(--s3) var(--s4);
-    background: var(--surface-2);
+    background: #fffaf0;
+    border-radius: var(--radius-sm);
 }
 
 .audit .notice h3 {
@@ -415,15 +564,15 @@ input {
 
 /* Audit subsections are divided by rules rather than nested cards. */
 .audit-card {
-    margin-top: var(--s4);
-    padding-top: var(--s4);
+    margin-top: var(--s5);
+    padding-top: var(--s5);
     border-top: 1px solid var(--border);
 }
 
 .audit-card-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: var(--s1) var(--s3);
     margin-bottom: var(--s2);
@@ -447,14 +596,20 @@ input {
 .audit .corrections li {
     padding-left: var(--s3);
     color: var(--text);
-    border-left: 2px solid var(--border);
+    border-left: 3px solid var(--navy-100);
 }
 
+/* Disclosures */
 details {
     margin-top: var(--s3);
-    padding: var(--s2) var(--s3);
+    padding: var(--s2) var(--s4);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
+}
+
+details[open] {
+    background: var(--surface-2);
 }
 
 details[open] summary {
@@ -462,8 +617,15 @@ details[open] summary {
 }
 
 summary {
+    min-height: 32px;
+    padding: var(--s1) 0;
+    color: var(--navy-700);
     cursor: pointer;
     font-weight: 600;
+}
+
+summary:hover {
+    color: var(--navy-900);
 }
 
 .failures code,
@@ -484,12 +646,28 @@ summary {
 .audit .inputs .input-waiting { --input-color: var(--wait); }
 
 .audit .inputs th {
-    border-left: 2px solid var(--input-color);
+    border-left: 3px solid var(--input-color);
 }
 
 /* Counts stay neutral so zero stale or unverifiable games do not read as alarms; the row marker carries state. */
 .audit .inputs td {
     color: var(--text);
+}
+
+@media (max-width: 640px) {
+    main {
+        gap: var(--s4);
+        padding: var(--s4) var(--s4) var(--s6);
+    }
+
+    .masthead,
+    main > section {
+        padding: var(--s4);
+    }
+
+    .masthead h1 {
+        font-size: var(--text-xl);
+    }
 }
 
 @media (max-width: 420px) {
@@ -519,4 +697,10 @@ summary {
 
 details > :last-child {
     margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+    }
 }
