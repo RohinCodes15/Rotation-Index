@@ -15,13 +15,50 @@
         {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
         {% elif possession_model and possession_players is not none %}{% set badge = ("ok", "Estimates shown · all " ~ "{:,}".format(audit.expected) ~ " games validated") %}
         {% else %}{% set badge = ("warn", "Estimates hidden · no matching outputs") %}{% endif %}
+        {# Header facts come from the loaded report; the season fallback is the configured season. #}
+        {% set src = status or possession_status or {} %}
+        {% set season = (src.season or "2025-26")|replace("-", "–") %}
+        {% set season_type = src.season_type or "Regular Season" %}
+        {% macro count(value) %}{{ "{:,}".format(value) if value is number else "–" }}{% endmacro %}
+        {# Model cell mirrors the overview's model-status branches. #}
+        {% if status %}{% set model_state = "Lineup total" %}
+        {% elif not audit %}{% set model_state = "No data" %}
+        {% elif not audit.ready %}{% set model_state = "Locked" %}
+        {% elif possession_model and possession_players is not none %}{% set model_state = "Available" %}
+        {% else %}{% set model_state = "Awaiting" %}{% endif %}
         <header class="masthead">
-            <div>
+            <svg class="masthead-court" viewBox="0 0 470 500" aria-hidden="true" focusable="false">
+                <g fill="none" stroke="currentColor" stroke-width="3">
+                    <rect x="1.5" y="1.5" width="467" height="497"/>
+                    <circle cx="235" cy="1.5" r="60"/>
+                    <rect x="155" y="310" width="160" height="188.5"/>
+                    <circle cx="235" cy="310" r="60"/>
+                    <path d="M30 498.5V358a205 205 0 0 1 410 0v140.5"/>
+                    <circle cx="235" cy="446" r="7.5"/>
+                </g>
+            </svg>
+            <div class="masthead-brand">
+                <p class="masthead-kicker">NBA player impact</p>
                 <h1>Rotation Index</h1>
-                <p class="subtitle">NBA player impact, {{ status.season ~ ' ' ~ status.season_type if status else '2025-26 Regular Season' }}</p>
-
+                <p class="subtitle">{{ season }} {{ season_type }}</p>
+                <span class="badge badge-{{ badge[0] }}">{{ badge[1] }}</span>
             </div>
-            <span class="badge badge-{{ badge[0] }}">{{ badge[1] }}</span>
+            <dl class="scoreboard" aria-label="Season status">
+                <div class="scoreboard-cell">
+                    <dt>Season</dt>
+                    <dd>{{ season }}</dd>
+                </div>
+                <div class="scoreboard-cell">
+                    <dt>{{ "Games used" if status else "Games validated" }}</dt>
+                    <dd>{% if status %}{{ count(status.games_used) }}<span class="scoreboard-of">/ {{ count(status.games_in_season) }}</span>
+                        {%- elif audit %}{{ count(audit.counts.validated) }}<span class="scoreboard-of">/ {{ count(audit.expected) }}</span>
+                        {%- else %}–{% endif %}</dd>
+                </div>
+                <div class="scoreboard-cell scoreboard-model scoreboard-{{ badge[0] }}">
+                    <dt>Model</dt>
+                    <dd>{{ model_state }}</dd>
+                </div>
+            </dl>
         </header>
 
         {% if audit %}

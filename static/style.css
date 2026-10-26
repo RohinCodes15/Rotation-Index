@@ -159,41 +159,172 @@ code {
     font-size: 0.88em;
 }
 
-/* Masthead: navy band, red underline, status pill on the right. */
+/* Masthead: navy band with a red baseline, brand on the left, scoreboard on the right.
+   Colors on navy are their own small set so text keeps at least 4.5:1. */
 .masthead {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--s3) var(--s5);
-    padding: var(--s5) var(--s5);
+    --on-navy: #c9d4e8;
+    --on-navy-dim: #9fb0cf;
+    --navy-panel: #102a5a;
+    --hairline: rgba(255, 255, 255, 0.16);
+
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--s5) var(--s6);
+    padding: var(--s6) var(--s6) var(--s5);
+    overflow: hidden;
     color: var(--white);
     background: var(--navy-900);
     border-bottom: 4px solid var(--red-600);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
 }
 
-.masthead > div,
+/* Decorative half-court lines, faint enough to read as texture. */
+.masthead-court {
+    position: absolute;
+    top: -96px;
+    right: 18%;
+    width: 300px;
+    height: auto;
+    color: var(--white);
+    opacity: 0.07;
+    pointer-events: none;
+}
+
+.masthead-brand,
+.scoreboard {
+    position: relative;
+}
+
+.masthead-brand,
 .badge {
     min-width: 0;
     max-width: 100%;
     overflow-wrap: anywhere;
 }
 
+.masthead-kicker {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    margin: 0 0 var(--s2);
+    color: var(--on-navy);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.masthead-kicker::before {
+    content: "";
+    width: 20px;
+    height: 3px;
+    background: var(--red-600);
+    border-radius: var(--radius-pill);
+}
+
 .masthead h1 {
     color: var(--white);
-    font-size: var(--text-2xl);
+    font-size: 44px;
     font-weight: 800;
-    letter-spacing: -0.02em;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
 }
 
 .subtitle {
-    margin: var(--s1) 0 0;
-    color: #c9d4e8;
-    font-size: var(--text-sm);
+    margin: var(--s2) 0 var(--s4);
+    color: var(--on-navy);
+    font-size: var(--text-md);
     font-weight: 500;
-    letter-spacing: 0.02em;
+}
+
+/* Readiness badge in the masthead gets a state dot; the words carry the meaning. */
+.masthead .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s2);
+}
+
+.masthead .badge::before {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    background: currentColor;
+    border-radius: 50%;
+}
+
+/* Scoreboard: label over a large tabular figure, cells split by hairlines. */
+.scoreboard {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 1px;
+    margin: 0;
+    overflow: hidden;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+}
+
+.scoreboard-cell {
+    min-width: 0;
+    padding: var(--s3) var(--s5);
+    text-align: center;
+    background: var(--navy-panel);
+    border-top: 3px solid transparent;
+}
+
+.scoreboard dt {
+    color: var(--on-navy-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.scoreboard dd {
+    margin: var(--s1) 0 0;
+    color: var(--white);
+    font-size: var(--text-xl);
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.scoreboard-of {
+    margin-left: var(--s1);
+    color: var(--on-navy-dim);
+    font-size: var(--text-base);
+    font-weight: 600;
+}
+
+.scoreboard-model dd {
+    font-size: var(--text-lg);
+    line-height: 1.4;
+}
+
+.scoreboard-ok { border-top-color: #4cc38a; }
+.scoreboard-warn { border-top-color: #e8b04b; }
+.scoreboard-bad { border-top-color: #f07167; }
+.scoreboard-muted { border-top-color: var(--on-navy-dim); }
+
+@media (max-width: 860px) {
+    .masthead {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .scoreboard {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .masthead-court {
+        right: -60px;
+    }
 }
 
 /* Status pill: tinted background with state-colored text, never color alone. */
@@ -660,13 +791,45 @@ summary:hover {
         padding: var(--s4) var(--s4) var(--s6);
     }
 
-    .masthead,
     main > section {
         padding: var(--s4);
     }
 
+    .masthead {
+        padding: var(--s5) var(--s4) var(--s4);
+    }
+
     .masthead h1 {
-        font-size: var(--text-xl);
+        font-size: 34px;
+    }
+
+    .subtitle {
+        font-size: var(--text-base);
+    }
+
+    .scoreboard-cell {
+        padding: var(--s2) var(--s1);
+    }
+
+    .scoreboard dt {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        white-space: normal;
+    }
+
+    .scoreboard dd {
+        font-size: var(--text-lg);
+    }
+
+    .scoreboard-of {
+        display: block;
+        margin-left: 0;
+        font-size: var(--text-xs);
+    }
+
+    .scoreboard-model dd {
+        font-size: var(--text-base);
+        line-height: 1.55;
     }
 }
 
