@@ -11,7 +11,8 @@
     {% if status %}{% set badge = ("muted", "Lineup-total data · {:,} of {:,} games".format(status.games_used, status.games_in_season)) %}
     {% elif not audit %}{% set badge = ("muted", "No data loaded") %}
     {% elif not audit.ready and audit.raw_complete %}{% set badge = ("warn", "Estimates hidden · inputs changed since audit") %}
-    {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
+    {# Waiting (not cached) and failed games are named separately, so the badge never counts a failure as waiting. #}
+    {% elif not audit.ready %}{% set held = ["{:,} waiting".format(audit.counts.missing) if audit.counts.missing is number and audit.counts.missing, "{:,} failed".format(audit.failures|length) if audit.failures]|select|join(" · ") %}{% set badge = ("warn", "Estimates hidden · " ~ (held or "season not fully validated")) %}
     {% elif possession_model and possession_players is not none %}{% set badge = ("ok", "Estimates shown · all " ~ "{:,}".format(audit.expected) ~ " games validated") %}
     {% else %}{% set badge = ("warn", "Estimates hidden · no matching outputs") %}{% endif %}
     {# Header facts come from the loaded report; the season fallback is the configured season. #}
@@ -69,7 +70,7 @@
         {% set aic = audit.inputs.counts %}
         {% set validated_state = "neutral" if ac.validated is not number else ("good" if ac.validated == audit.expected else "wait") %}
         {% set waiting_state = "neutral" if ac.missing is not number else ("wait" if ac.missing else "good") %}
-        {% set failed_state = "neutral" if ac.failed is not number else ("bad" if ac.failed else "good") %}
+        {% set failed_state = "bad" if audit.failures else ("neutral" if ac.failed is not number else ("bad" if ac.failed else "good")) %}
         {% if not audit.inputs.checked %}{% set inputs_state = "neutral" %}
         {% elif aic.unverifiable %}{% set inputs_state = "bad" %}
         {% elif audit.inputs.fresh %}{% set inputs_state = "good" %}
@@ -89,7 +90,7 @@
                 <div class="overview-card state-{{ failed_state }}">
                     <dt>Failed games</dt>
                     <dd class="overview-value">{{ n(audit.counts.failed) }}</dd>
-                    <dd class="overview-detail">{{ "None failed parsing or validation" if ac.failed == 0 else "Failed parsing or validation" }}</dd>
+                    <dd class="overview-detail">{% if audit.failures and not ac.failed %}{{ "{:,}".format(audit.failures|length) }} listed under validation failures{% elif ac.failed == 0 %}None failed parsing or validation{% else %}Failed parsing or validation{% endif %}</dd>
                 </div>
                 <div class="overview-card state-{{ inputs_state }}">
                     <dt>Fresh model inputs</dt>
