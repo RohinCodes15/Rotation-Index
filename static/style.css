@@ -76,7 +76,10 @@
     --radius-pill: 999px;
     --shadow-sm: 0 1px 2px rgba(11, 31, 69, 0.06);
     --shadow: 0 1px 3px rgba(11, 31, 69, 0.08), 0 4px 12px rgba(11, 31, 69, 0.05);
+    /* Motion: hover and focus feedback, then entry and disclosure, then the progress fill */
     --duration: 150ms;
+    --duration-slow: 240ms;
+    --duration-bar: 300ms;
 }
 
 * {
@@ -848,7 +851,7 @@ form label {
 
 form input {
     display: block;
-    margin: 6px 0 0;
+    margin: var(--s1) 0 0;
     max-width: 100%;
 }
 
@@ -1315,7 +1318,7 @@ html {
 }
 
 body:not(.filtered) :is(.masthead, main) {
-    animation: rise 240ms ease-out both;
+    animation: rise var(--duration-slow) ease-out both;
 }
 
 body:not(.filtered) main {
@@ -1335,7 +1338,7 @@ body:not(.filtered) main {
 }
 
 details[open] > :not(summary) {
-    animation: fade-in 200ms ease-out;
+    animation: fade-in var(--duration-slow) ease-out;
 }
 
 /* Disclosures open and close by height where the browser supports animating to auto. */
@@ -1349,7 +1352,7 @@ details[open] > :not(summary) {
             height: 0;
             overflow: clip;
             overflow-clip-margin: 4px;
-            transition: height 220ms ease, content-visibility 220ms allow-discrete;
+            transition: height var(--duration-slow) ease, content-visibility var(--duration-slow) allow-discrete;
         }
 
         details[open]::details-content {
@@ -1363,7 +1366,7 @@ details[open] > :not(summary) {
 }
 
 body:not(.filtered) .progress .bar {
-    animation: grow 300ms ease-out 200ms both;
+    animation: grow var(--duration-bar) ease-out var(--duration-slow) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
