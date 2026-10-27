@@ -986,12 +986,26 @@ input[type="search"] {
     list-style: none;
 }
 
-/* Corrections stay visible but read as supporting detail. */
+/* Corrections stay visible but read as supporting detail: where, what changed, then why and the evidence. */
 .audit .corrections li {
     padding-left: var(--s3);
     color: var(--muted);
     font-size: var(--text-sm);
     border-left: 3px solid var(--navy-100);
+}
+
+.correction-head,
+.correction-change,
+.correction-reason {
+    display: block;
+}
+
+.correction-change {
+    color: var(--text);
+}
+
+.correction-reason {
+    margin: 2px 0;
 }
 
 .audit .corrections strong {
@@ -1006,8 +1020,20 @@ input[type="search"] {
     margin: var(--s4) 0;
 }
 
+/* Settings read as a compact reference sheet, quieter than the metrics above them. */
 .report-grid .facts {
     margin: 0;
+    font-size: var(--text-sm);
+}
+
+.report-grid .facts :is(th, td) {
+    padding-top: var(--s2);
+    padding-bottom: var(--s2);
+}
+
+.report-grid .facts td.rule {
+    font-weight: 400;
+    overflow-wrap: anywhere;
 }
 
 .report-grid h3,
@@ -1019,8 +1045,17 @@ input[type="search"] {
     margin-bottom: var(--s1);
 }
 
+/* Below this width the four columns scroll inside their region instead of breaking numbers mid-digit. */
+.compare {
+    min-width: 36rem;
+}
+
 .compare thead th {
     color: var(--muted);
+}
+
+.compare td {
+    white-space: nowrap;
 }
 
 .compare thead th + th,
@@ -1033,13 +1068,37 @@ input[type="search"] {
     font-weight: 800;
 }
 
+/* The difference column is the size of the edge; it stays secondary to the two errors. */
+.compare td.diff {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.compare td.diff .small {
+    display: block;
+    font-weight: 400;
+}
+
+/* Two short numeric columns: keep them together instead of spread across the page. */
+.holdout-errors {
+    max-width: 28rem;
+}
+
+.holdout-errors :is(th, td):last-child {
+    text-align: right;
+}
+
+details:has(.holdout-errors) {
+    margin-bottom: var(--s3);
+}
+
 .holdout-errors tr.selected td {
     background: var(--navy-100);
     font-weight: 700;
 }
 
 .report-stats {
-    align-items: start;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--s4);
