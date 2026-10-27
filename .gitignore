@@ -229,3 +229,7 @@ data/*.json
 # Local tool settings
 .claude/settings.local.json
 .DS_Store
+
+.serena/
+graphify-out/
+brag-output/work/
