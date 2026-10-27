@@ -174,6 +174,9 @@
         {% if audit %}
         {% set c = audit.counts %}
         {% macro game(g) %}{{ g.game_id }}{% if g.matchup %} ({{ g.matchup }}{% if g.date %}, {{ g.date }}{% endif %}){% endif %}{% endmacro %}
+        {# With estimates shown the audit is supporting evidence, so it follows the player results; otherwise it explains why they are hidden and stays here. #}
+        {% set estimates_shown = possession_model and possession_players is not none %}
+        {% set audit_section %}
         <section class="audit" aria-labelledby="audit-title">
             <div class="audit-summary">
                 <h2 id="audit-title">Possession cache audit</h2>
@@ -343,6 +346,8 @@
             </div>
             {% endif %}
         </section>
+        {% endset %}
+        {% if not estimates_shown %}{{ audit_section }}{% endif %}
         {% endif %}
 
         {% if possession_model and possession_players is not none %}
@@ -402,6 +407,8 @@
                 <p class="small"><a href="{{ url_for('home', min_poss=min_poss, _anchor='player-estimates') }}">Clear the search</a></p>{% else %}<p>No players have at least {{ "{:,}".format(min_poss) }} on-court possessions. Lower the minimum to see more.</p>
                 <p class="small"><a href="{{ url_for('home', min_poss=0, _anchor='player-estimates') }}">Show every player</a></p>{% endif %}</div>{% endif %}
         </section>
+
+        {% if audit and estimates_shown %}{{ audit_section }}{% endif %}
 
         {% set m = possession_model %}
         <section>
