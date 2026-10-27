@@ -1,5 +1,9 @@
 # Rotation-Index
 
+<a href="media/launch.mp4"><img src="media/launch.gif" alt="Rotation Index launch video" width="800"></a>
+
+*Click the preview to watch the full launch video.*
+
 ## Current season configuration
 
 The configured season is **2025–26 Regular Season**. The authoritative pbpstats
