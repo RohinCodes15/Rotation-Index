@@ -1271,6 +1271,12 @@ summary:hover {
 }
 
 @media (max-width: 420px) {
+    /* A long readiness badge wraps here; a pill radius on two lines reads as a blob. */
+    .masthead .badge {
+        border-radius: var(--radius-sm);
+    }
+
+
     .overview-card,
     .audit-card {
         padding: var(--s3);
