@@ -8,7 +8,7 @@
 </head>
 <body>
     {# Header badge mirrors the notice/estimate branches below; it adds no new state. #}
-    {% if status %}{% set badge = ("muted", "Lineup-total data · " ~ status.games_used ~ " of " ~ status.games_in_season ~ " games") %}
+    {% if status %}{% set badge = ("muted", "Lineup-total data · {:,} of {:,} games".format(status.games_used, status.games_in_season)) %}
     {% elif not audit %}{% set badge = ("muted", "No data loaded") %}
     {% elif not audit.ready and audit.raw_complete %}{% set badge = ("warn", "Estimates hidden · inputs changed since audit") %}
     {% elif not audit.ready %}{% set badge = ("warn", "Estimates hidden · " ~ ("{:,}".format(audit.expected - audit.counts.validated) if audit.counts.validated is number else "some") ~ " games waiting to validate") %}
@@ -142,7 +142,7 @@
             <table class="facts">
                 <tr><th scope="row">Source</th><td>{{ status.source }}</td></tr>
                 <tr><th scope="row">Loaded</th><td>{{ status.loaded_at }}</td></tr>
-                <tr><th scope="row">Games used</th><td>{{ status.games_used }} of {{ status.games_in_season }}</td></tr>
+                <tr><th scope="row">Games used</th><td>{{ count(status.games_used) }} of {{ count(status.games_in_season) }}</td></tr>
                 <tr><th scope="row">Failed downloads</th><td>{{ status.failed_downloads|length }}</td></tr>
                 <tr><th scope="row">Games failing checks (excluded)</th><td>{{ status.games_failing_checks|length }}</td></tr>
                 <tr><th scope="row">Zero-possession lineups dropped</th><td>{{ status.zero_possession_lineups_dropped }}</td></tr>
@@ -180,7 +180,7 @@
                 <div class="progress" role="img" aria-label="{{ n(c.validated) }} validated, {{ n(c.failed) }} failed, {{ n(c.missing) }} missing of {{ audit.expected }} games">
                     {% for kind in ("validated", "failed") if audit.progress[kind] %}<span class="bar {{ kind }}" style="width: {{ audit.progress[kind] }}%"></span>{% endfor %}
                 </div>
-                <p class="legend small"><span class="key validated"></span>Validated {{ n(c.validated) }} <span class="key failed"></span>Failed {{ n(c.failed) }} <span class="key missing"></span>Not cached {{ n(c.missing) }}</p>
+                <p class="legend small"><span><span class="key validated"></span>Validated {{ n(c.validated) }}</span> <span><span class="key failed"></span>Failed {{ n(c.failed) }}</span> <span><span class="key missing"></span>Not cached {{ n(c.missing) }}</span></p>
             </div>
 
             {% if audit.ready %}

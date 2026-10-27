@@ -689,8 +689,10 @@ main > section:is(#player-estimates, #lineup-estimates) {
     text-align: right;
 }
 
+/* Names stay on one line so rows keep one height; the table scrolls sideways on phones. */
 .players a {
     text-decoration: none;
+    white-space: nowrap;
 }
 
 .players a:hover {
@@ -879,7 +881,7 @@ button:hover {
 }
 
 input {
-    width: 100px;
+    width: 100%;
 }
 
 /* Names need room; the possession minimum stays compact. */
@@ -925,10 +927,17 @@ input[type="search"] {
 /* The empty track is "not cached"; its legend key uses the same fill and outline. */
 .missing { background: var(--track); box-shadow: inset 0 0 0 1px var(--border-strong); }
 
-/* Legend stays inline text so each swatch sits with its label. */
+/* Each legend item (swatch, label, count) wraps as one unit. */
 .legend {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--s4);
     font-variant-numeric: tabular-nums;
     line-height: 1.9;
+}
+
+.legend > span {
+    white-space: nowrap;
 }
 
 .key {
@@ -940,21 +949,16 @@ input[type="search"] {
     vertical-align: -1px;
 }
 
-.legend .key:not(:first-child) {
-    margin-left: var(--s4);
-}
-
 .audit .legend {
     margin-bottom: 0;
 }
 
-/* Audit sub-panels: a left rule in the panel's state, header row with title and status badge. */
+/* Audit sub-panels: header row with title and status badge; the badge carries state, so no side rule. */
 .audit-card {
     margin-top: var(--s4);
     padding: var(--s4) var(--s5);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-left: 4px solid var(--state, var(--border-strong));
     border-radius: var(--radius-sm);
 }
 
@@ -1142,20 +1146,19 @@ summary:hover {
     margin-bottom: 6px;
 }
 
-/* Freshness rows share the state palette with the problem tags. */
-.audit .inputs .input-fresh { --input-color: var(--good); }
-.audit .inputs .input-stale { --input-color: var(--wait); }
-.audit .inputs .input-missing { --input-color: var(--wait); }
-.audit .inputs .input-unverifiable { --input-color: var(--bad); }
-.audit .inputs .input-waiting { --input-color: var(--wait); }
-
-.audit .inputs th {
-    border-left: 3px solid var(--input-color);
+/* Counts stay neutral and on one line so zero stale or unverifiable games do not read as alarms; the panel badge carries state. */
+/* Labels take whatever the one-line counts leave, so phones do not stack them three lines deep. */
+.audit .inputs {
+    table-layout: auto;
 }
 
-/* Counts stay neutral so zero stale or unverifiable games do not read as alarms; the row marker carries state. */
+.audit .inputs th:first-child {
+    width: auto;
+}
+
 .audit .inputs td {
     color: var(--text);
+    white-space: nowrap;
 }
 
 @media (max-width: 640px) {
@@ -1209,7 +1212,8 @@ summary:hover {
 }
 
 @media (max-width: 420px) {
-    .overview-card {
+    .overview-card,
+    .audit-card {
         padding: var(--s3);
     }
 
@@ -1226,13 +1230,9 @@ details > :last-child {
     margin-bottom: 0;
 }
 
-/* Motion: one short entry, no loops. Each animation starts from a visible end state, so content never stays hidden. */
+/* Motion: only the audit bar and opened disclosures move; filter submits reload the page, so sections and table rows stay still. */
 html {
     scroll-behavior: smooth;
-}
-
-@keyframes rise {
-    from { opacity: 0; transform: translateY(8px); }
 }
 
 @keyframes fade-in {
@@ -1243,17 +1243,6 @@ html {
     from { transform: scaleX(0); }
 }
 
-.masthead,
-main > section {
-    animation: rise 260ms ease-out both;
-}
-
-/* Stagger the first sections only; later ones are below the fold on arrival. */
-main > section:nth-of-type(1) { animation-delay: 60ms; }
-main > section:nth-of-type(2) { animation-delay: 120ms; }
-main > section:nth-of-type(3) { animation-delay: 180ms; }
-main > section:nth-of-type(n+4) { animation-delay: 240ms; }
-
 details[open] > :not(summary) {
     animation: fade-in 200ms ease-out;
 }
@@ -1263,12 +1252,6 @@ details[open] > :not(summary) {
     animation: grow 300ms ease-out 200ms both;
 }
 
-.impact .bar > span {
-    animation: grow 300ms ease-out 200ms both;
-}
-
-.impact.pos .bar > span { transform-origin: left; }
-.impact.neg .bar > span { transform-origin: right; }
 
 @media (prefers-reduced-motion: reduce) {
     html {
