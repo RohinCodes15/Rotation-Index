@@ -6,7 +6,7 @@
     <title>Rotation Index</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body{% if request.args %} class="filtered"{% endif %}>
     {# Header badge mirrors the notice/estimate branches below; it adds no new state. #}
     {% if status %}{% set badge = ("muted", "Lineup-total data · {:,} of {:,} games".format(status.games_used, status.games_in_season)) %}
     {% elif not audit %}{% set badge = ("muted", "No data loaded") %}

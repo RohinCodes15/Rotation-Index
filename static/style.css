@@ -1230,9 +1230,15 @@ details > :last-child {
     margin-bottom: 0;
 }
 
-/* Motion: only the audit bar and opened disclosures move; filter submits reload the page, so sections and table rows stay still. */
+/* Motion: one short entry, sections that rise as they scroll in, and bars that grow once.
+   A filtered reload (body.filtered) skips the entry and bar replay so repeated filtering stays still.
+   Every animation starts from a visible end state, so content never stays hidden. */
 html {
     scroll-behavior: smooth;
+}
+
+@keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
 }
 
 @keyframes fade-in {
@@ -1243,15 +1249,57 @@ html {
     from { transform: scaleX(0); }
 }
 
+body:not(.filtered) :is(.masthead, main) {
+    animation: rise 240ms ease-out both;
+}
+
+body:not(.filtered) main {
+    animation-delay: 60ms;
+}
+
+/* Sections below the fold rise as they enter; ones already in view are past the range and render static.
+   Screen only: in print, sections not yet scrolled to would stay at the hidden start frame. */
+@supports (animation-timeline: view()) {
+    @media screen {
+        main > section {
+            animation: rise linear both;
+            animation-timeline: view();
+            animation-range: entry 0% entry 20%;
+        }
+    }
+}
+
 details[open] > :not(summary) {
     animation: fade-in 200ms ease-out;
 }
 
-.progress .bar {
-    transform-origin: left;
-    animation: grow 300ms ease-out 200ms both;
+/* Disclosures open and close by height where the browser supports animating to auto. */
+@supports (interpolate-size: allow-keywords) {
+    @media (prefers-reduced-motion: no-preference) {
+        :root {
+            interpolate-size: allow-keywords;
+        }
+
+        details::details-content {
+            height: 0;
+            overflow: clip;
+            overflow-clip-margin: 4px;
+            transition: height 220ms ease, content-visibility 220ms allow-discrete;
+        }
+
+        details[open]::details-content {
+            height: auto;
+        }
+    }
 }
 
+.progress .bar {
+    transform-origin: left;
+}
+
+body:not(.filtered) .progress .bar {
+    animation: grow 300ms ease-out 200ms both;
+}
 
 @media (prefers-reduced-motion: reduce) {
     html {
